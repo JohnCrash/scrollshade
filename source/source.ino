@@ -5,24 +5,22 @@
 #include "dht.h"
 #include "RTClib.h"
 
-#define EndStop_A0_Pin 1 //第一扇遮阳帘的收起
-#define EndStop_A1_Pin 2 //第一扇遮阳帘的展开
-#define EndStop_B0_Pin 3 //第二扇遮阳帘的收起   
-#define EndStop_B1_Pin 4 //第二扇遮阳帘的展开
-#define Open_A_Pin 5  //打开第一扇遮阳帘的按键
-#define Close_A_Pin 6 //关闭第一扇遮阳帘的按键
+#define EndStop_A0_Pin 12 //第一扇遮阳帘的收起
+#define EndStop_A1_Pin 13 //第一扇遮阳帘的展开
+#define EndStop_B0_Pin 8 //第二扇遮阳帘的收起   
+#define EndStop_B1_Pin 9 //第二扇遮阳帘的展开
+#define Open_A_Pin 3  //打开第一扇遮阳帘的按键
+#define Close_A_Pin 4 //关闭第一扇遮阳帘的按键
 #define Open_B_Pin 7  //打开第二扇遮阳帘的按键
-#define Close_B_Pin 8 //关闭第二扇遮阳帘的按键 
-#define Scroll_A_Auto_Led_Pin 9 //卷帘A自动控制状态指示灯
-#define Scroll_B_Auto_Led_Pin 10 //卷帘B自动控制状态指示灯
-#define MOTOR_A_PIN0 11 //卷帘电机A控制in0
-#define MOTOR_A_PIN1 12
-#define MOTOR_B_PIN0 13 
-#define MOTOR_B_PIN1 14  
+#define Close_B_Pin 6 //关闭第二扇遮阳帘的按键 
+#define MOTOR_A_PIN0 28 //卷帘电机A控制in0
+#define MOTOR_A_PIN1 26
+#define MOTOR_B_PIN0 24 
+#define MOTOR_B_PIN1 22  
 #define DHT22_PIN0 15
-#define DHT22_PIN1 16
-#define SET_DATETIME_PIN 17 //设置当前时钟
-#define SWITCH_INDOOR_OUTDOOR_PIN 18 //切换室内室外温度，坚固开灯的作用
+#define DHT22_PIN1 11
+#define SET_DATETIME_PIN 5 //设置当前时钟
+#define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
 //温度湿度传感器DHT22资料
 //https://playground.arduino.cc/Main/DHTLib
 //使用的库
@@ -64,11 +62,26 @@ char ilogs = 0;
 hourlog hlogs[60];
 //切换显示室内和室外
 int lastSwitchIndoorOurdoor = HIGH;
+
+int lcdlighs = 1000;
+
+void EnableLCDLigh(){
+	lcd.setBacklight(HIGH);
+	lcdlighs = 1000;
+}
+
+void LCDLighCyle(){
+	if(lcdlighs-- == 0){
+		lcd.setBacklight(LOW);
+	}
+}
+
 void switchIndoorOutdoor(){
 	int state = digitalRead(SWITCH_INDOOR_OUTDOOR_PIN);
 	if(state==LOW && lastSwitchIndoorOurdoor==HIGH){
 		lastSwitchIndoorOurdoor = LOW;
 		bIndoor = !bIndoor;
+		EnableLCDLigh();
 	}else if(state==HIGH&&lastSwitchIndoorOurdoor==LOW){
 		lastSwitchIndoorOurdoor = HIGH;
 	}
@@ -108,7 +121,7 @@ void writeHourlog(){
 				}
 				f.close();
 			}
-			lastHour = now.day();
+			lastHour = now.hour();
 			ilogs = 0;
 		}else{
 			ilogs++;
@@ -158,21 +171,21 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].humi0 = dht0.humidity;
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0)
-		lcd.print("indoor "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"%   ");
+		lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
   }else{
 	  hlogs[ilogs].temp0 = 0;
 	  hlogs[ilogs].humi0 = 0;
-	  if(mode==0)lcd.print("0."+getDHTError(chk0));
+	  if(mode==0)lcd.print("1."+getDHTError(chk0));
   }
   if(chk1==DHTLIB_OK){ //室外温度
 	  hlogs[ilogs].temp1 = dht1.temperature;
 	  hlogs[ilogs].humi1 = dht1.humidity;
 	  if(!bIndoor && mode==0)
-		lcd.print("outdoor "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"%   ");
+		lcd.print("od "+String(dht1.temperature,0)+"C "+String(dht1.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
   }else{
 	  hlogs[ilogs].temp1 = 0;
 	  hlogs[ilogs].humi1 = 0;
-	  if(mode==0)lcd.print("1."+getDHTError(chk1));	  
+	  if(!bIndoor &&mode==0)lcd.print("2."+getDHTError(chk1));	  
   }
   //每小时存入一次温度数据到sd卡中
   writeHourlog();
@@ -198,16 +211,10 @@ void setup(){
   pinMode(Close_B_Pin,INPUT_PULLUP);
   pinMode(SWITCH_INDOOR_OUTDOOR_PIN,INPUT_PULLUP);
   pinMode(SET_DATETIME_PIN,INPUT_PULLUP);
-  pinMode(Scroll_A_Auto_Led_Pin,OUTPUT);
-  pinMode(Scroll_B_Auto_Led_Pin,OUTPUT);
   pinMode(MOTOR_A_PIN0,OUTPUT);
   pinMode(MOTOR_A_PIN1,OUTPUT);
   pinMode(MOTOR_B_PIN0,OUTPUT);
   pinMode(MOTOR_B_PIN1,OUTPUT);
-  pinMode(Scroll_A_Auto_Led_Pin,OUTPUT);
-  pinMode(Scroll_B_Auto_Led_Pin,OUTPUT);
-  digitalWrite(Scroll_A_Auto_Led_Pin,A_auto_state?HIGH:false);
-  digitalWrite(Scroll_B_Auto_Led_Pin,B_auto_state?HIGH:false);
   digitalWrite(MOTOR_A_PIN0,LOW); //关闭电机
   digitalWrite(MOTOR_A_PIN1,LOW);
   digitalWrite(MOTOR_B_PIN0,LOW);
@@ -216,11 +223,11 @@ void setup(){
   //初始化lcd
   lcd.begin(16,2);
   lcd.setBacklightPin(3,POSITIVE);
-  lcd.setBacklight(HIGH);
-  lcd.print("lcd init ok");
+  EnableLCDLigh();
+//  lcd.print("lcd init ok");
   //设置串口用于调试和命令传送
   Serial.begin(115200);
-  Serial.println("Serial ok");
+//  Serial.println("Serial ok");
 //  lcd.setCursor(0,1);
 //  lcd.setBacklight(LOW);
 //  lcd.print("init sd card...");
@@ -237,7 +244,6 @@ void setup(){
 //
 void manual_control_scroll(int esPin0,int esPin1,
             int openPin,int closePin,
-            int autoLedPin,
             int motorPin0,int motorPin1,
             bool* pstate,bool* pswitching){
   int openPress = digitalRead(openPin);
@@ -246,7 +252,7 @@ void manual_control_scroll(int esPin0,int esPin1,
   if(openPress==LOW && closePress==LOW){ //都按下切换控制状态
     *pstate = true;
     *pswitching = true;
-    digitalWrite(autoLedPin,HIGH);//打开自动处理灯
+	EnableLCDLigh();
   }else if(openPress==HIGH && closePress==HIGH){ //没有命令
     *pswitching = false;
     if(*pstate){
@@ -256,23 +262,23 @@ void manual_control_scroll(int esPin0,int esPin1,
   }else if(openPress==LOW){ //命令打开
     if(!*pswitching){ //单独按键，没有进入切换状态
       *pstate = false;
-      digitalWrite(autoLedPin,LOW);//关闭自动处理灯
       //open scroll
       if(digitalRead(esPin1)==HIGH){ //还未完全打开
         //继续打开
         motorCmd = 1;
       }
     }
+	EnableLCDLigh();
   }else{ //命令关闭 
     if(!*pswitching){ //单独按键，没有进入切换状态
       *pstate = false;
-      digitalWrite(autoLedPin,LOW);//关闭自动处理灯
       //close scroll
       if(digitalRead(esPin0)==HIGH){ //还未完全关闭
         //继续关闭
         motorCmd = 2;
       }
     } 
+	EnableLCDLigh();
   }
   switch(motorCmd){
     case 0://停止
@@ -358,6 +364,7 @@ void changeCurrentValue(int addPIN,int subPIN){
 void setDateTime_cycle(){
 	int state = digitalRead(SET_DATETIME_PIN);
 	if(state==LOW&&lastDateSetState==HIGH){
+		EnableLCDLigh();
 		lastDateSetState = LOW;
 		modeCooldown = 0;
 		DateTime now = rtc.now();
@@ -442,19 +449,18 @@ void loop(){
   if(mode==0){
 	  manual_control_scroll(  EndStop_A0_Pin,EndStop_A1_Pin,
 				  Open_A_Pin,Close_A_Pin,
-				  Scroll_A_Auto_Led_Pin,
 				  MOTOR_A_PIN0,MOTOR_A_PIN1,
 				  &A_auto_state,&A_switching_state);
 
 	  manual_control_scroll(  EndStop_B0_Pin,EndStop_B1_Pin,
 				  Open_B_Pin,Close_B_Pin,
-				  Scroll_B_Auto_Led_Pin,
 				  MOTOR_B_PIN0,MOTOR_B_PIN1,
 				  &B_auto_state,&B_switching_state);
 				  
 	  switchIndoorOutdoor();
   }
   setDateTime_cycle();
+  LCDLighCyle();
   if(secs==100){
 	temperature_storage_cycle();
 	secs = 0;
