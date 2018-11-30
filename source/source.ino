@@ -4,6 +4,7 @@
 #include <LiquidCrystal_I2C.h>
 #include "dht.h"
 #include "RTClib.h"
+#include "Temp.h"
 
 #define EndStop_A0_Pin 12 //第一扇遮阳帘的收起
 #define EndStop_A1_Pin 13 //第一扇遮阳帘的展开
@@ -19,10 +20,12 @@
 #define MOTOR_B_PIN1 22  
 #define DHT22_PIN0 15
 #define DHT22_PIN1 11
+#define OUTDOOR_LIGH_PIN A1
+#define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
 //温度湿度传感器DHT22资料
-//https://playground.arduino.cc/Main/DHTLib
+//https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
 //https://github.com/RobTillaart/Arduino/tree/master/libraries/DHTlib
 //时钟组件DS3231 
@@ -42,7 +45,7 @@ bool B_switching_state = false;
 bool bIndoor = true; //显示室内
 //温度传感器0
 dht dht0;
-dht dht1;
+//dht dht1;
 
 //lcd显示
 LiquidCrystal_I2C	lcd(0x27,2,1,0,4,5,6,7);
@@ -56,7 +59,7 @@ struct hourlog{
 	float temp0;
 	float humi0;
 	float temp1;
-	float humi1;
+	float light;
 };
 char ilogs = 0;
 hourlog hlogs[60];
@@ -113,11 +116,11 @@ void writeHourlog(){
 								lowInt2(now.hour())+".log";
 			File f = SD.open(filename,FILE_WRITE);
 			if(f){
-				for(int i=0;i<ilogs;i++){
+				for(int i=0;i<=ilogs;i++){
 					f.println(String(hlogs[i].temp0,1)+"C"+
 								String(hlogs[i].humi0,1)+"%"+
 								String(hlogs[i].temp1,1)+"C"+
-								String(hlogs[i].humi1,1)+"%");
+								String(hlogs[i].light,1)+"H");
 				}
 				f.close();
 			}
@@ -153,7 +156,7 @@ String getDHTError(int chk){
 //文件名命名为日期YYMMDDHH.log
 void temperature_storage_cycle(){
   int chk0 = dht0.read22(DHT22_PIN0);
-  int chk1 = dht1.read22(DHT22_PIN1);
+//  int chk1 = dht1.read22(DHT22_PIN1);
   if(mode==0){
 	  DateTime now = rtc.now();
 	  //显示时钟00:00:00-
@@ -177,16 +180,28 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].humi0 = 0;
 	  if(mode==0)lcd.print("1."+getDHTError(chk0));
   }
-  if(chk1==DHTLIB_OK){ //室外温度
-	  hlogs[ilogs].temp1 = dht1.temperature;
-	  hlogs[ilogs].humi1 = dht1.humidity;
-	  if(!bIndoor && mode==0)
-		lcd.print("od "+String(dht1.temperature,0)+"C "+String(dht1.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
-  }else{
-	  hlogs[ilogs].temp1 = 0;
-	  hlogs[ilogs].humi1 = 0;
-	  if(!bIndoor &&mode==0)lcd.print("2."+getDHTError(chk1));	  
+  //读取户外的温度与光照强度
+  int lighv = analogRead(OUTDOOR_LIGH_PIN);
+  int tempv = analogRead(OUTDOOR_TEMP_PIN);
+  
+  if(!bIndoor && mode==0){
+	  float r = 15.0*1024.0/(1024.0-tempv) + 5;
+	  float temp = calcTemp(r);
+	  hlogs[ilogs].temp1 = temp;
+	  hlogs[ilogs].light = lighv;
+	  lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H     ");
+	  //lcd.print("od "+String(r,1)+"k "+String(temp,1)+"C      ");
   }
+//  if(chk1==DHTLIB_OK){ //室外温度
+//	  hlogs[ilogs].temp1 = dht1.temperature;
+//	  hlogs[ilogs].humi1 = dht1.humidity;
+//	  if(!bIndoor && mode==0)
+//		lcd.print("od "+String(dht1.temperature,0)+"C "+String(dht1.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
+//  }else{
+//	  hlogs[ilogs].temp1 = 0;
+//	  hlogs[ilogs].humi1 = 0;
+//	  if(!bIndoor &&mode==0)lcd.print("2."+getDHTError(chk1));	  
+//  }
   //每小时存入一次温度数据到sd卡中
   writeHourlog();
 }
