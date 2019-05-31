@@ -1,3 +1,5 @@
+#include <LiquidCrystal_I2C.h>
+
 #include <SPI.h>
 #include <SD.h>
 #include <LCD.h>
@@ -24,6 +26,8 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
+#define ALLCYCLE_T 10*60*100 	 //完整周期
+#define VALVECYCLE_T 2*60*100  //打开阀门的时间
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -49,6 +53,7 @@ dht dht0;
 
 //lcd显示
 LiquidCrystal_I2C	lcd(0x27,2,1,0,4,5,6,7);
+
 //时间
 RTC_DS3231 rtc;
 byte lastHour = 255;
@@ -79,6 +84,7 @@ void LCDLighCyle(){
 	}
 }
 
+//切换内外温度显示
 void switchIndoorOutdoor(){
 	int state = digitalRead(SWITCH_INDOOR_OUTDOOR_PIN);
 	if(state==LOW && lastSwitchIndoorOurdoor==HIGH){
@@ -256,7 +262,7 @@ void setup(){
   lastMinute = now.minute();  
 }
 
-//
+//电机卷帘控制
 void manual_control_scroll(int esPin0,int esPin1,
             int openPin,int closePin,
             int motorPin0,int motorPin1,
@@ -309,6 +315,42 @@ void manual_control_scroll(int esPin0,int esPin1,
       digitalWrite(motorPin1,HIGH);
       break;
   }
+}
+
+//控制周期计数,每秒增加1满周期重置为0
+int valvecycle = 0;
+int forcevalve = 0;
+bool isopen = false;
+//当外部温度高于35度时周期打开和关闭电磁阀门
+void evalve(){
+	float t = hlogs[ilogs].temp1;
+	if( (t>=35 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
+		if(!isopen){
+		  digitalWrite(MOTOR_A_PIN0,HIGH);
+      digitalWrite(MOTOR_A_PIN1,LOW);
+			isopen = true;
+		}
+	}else if(isopen){
+		  digitalWrite(MOTOR_A_PIN0,LOW);
+      digitalWrite(MOTOR_A_PIN1,LOW);
+			isopen = false;
+	}
+	if(valvecycle > ALLCYCLE_T){
+		valvecycle = 0;
+	}else{
+		valvecycle++;
+	}
+	if(forcevalve>0)forcevalve--;
+
+	int openPressA = digitalRead(Open_A_Pin);
+  int closePressA = digitalRead(Close_A_Pin);
+	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
+	if(openPressA==HIGH && closePressA==LOW){
+		valvecycle = 0;
+		forcevalve = VALVECYCLE_T; //强制打开的周期
+	}else if(openPressA==LOW && closePressA==HIGH){
+		forcevalve = 0;
+	}
 }
 
 //在设置时间时使用第一个电机控制来增减数字,如果不控制则不会修改。
@@ -462,6 +504,7 @@ void setDateTime_cycle(){
 void loop(){
 	//正常的显示控制模式
   if(mode==0){
+		/*
 	  manual_control_scroll(  EndStop_A0_Pin,EndStop_A1_Pin,
 				  Open_A_Pin,Close_A_Pin,
 				  MOTOR_A_PIN0,MOTOR_A_PIN1,
@@ -471,16 +514,21 @@ void loop(){
 				  Open_B_Pin,Close_B_Pin,
 				  MOTOR_B_PIN0,MOTOR_B_PIN1,
 				  &B_auto_state,&B_switching_state);
-				  
+		*/	  
+		evalve();
 	  switchIndoorOutdoor();
   }
+	//设置时间以及时间显示
   setDateTime_cycle();
+	//LCD在按键后亮10秒
   LCDLighCyle();
   if(secs==100){
-	temperature_storage_cycle();
-	secs = 0;
+		//温度数据存储
+		temperature_storage_cycle();
+		secs = 0;
   }else{
 	  secs++;
   }
+	//每个循环100ms
   delay(10);  
 }
