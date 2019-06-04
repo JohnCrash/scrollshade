@@ -26,10 +26,8 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define ALLCYCLE_T (10*60*100L) 	 //完整周期
-#define VALVECYCLE_T (2*60*100L)  //打开阀门的时间
-#define SHOCKCYCLE_T (VALVECYCLE_T/5) //(整数)再打开阀门时还进行开关操作让水撒的更加均匀
-#define SHOCK_T (3*100)					 //每次关闭的时间
+#define CLOSECYCLE_T (60*100L) 	 //完整周期
+#define OPENCYCLE_T (10*100L)  //打开阀门的时间
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -187,8 +185,13 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].temp0 = dht0.temperature;
 	  hlogs[ilogs].humi0 = dht0.humidity;
 	  //显示温度00C 00% 00C 00%
-	  if(bIndoor && mode==0)
-			lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(isopen?"OPEN":"CLOSE")+"     ");
+	  if(bIndoor && mode==0){
+			if(forcevalve==0)
+				lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(isopen?"OPEN":"CLOSE")+"     ");
+			else
+				lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+String(forcevalve/100)+"     ");
+		}
+			
   }else{
 	  hlogs[ilogs].temp0 = 0;
 	  hlogs[ilogs].humi0 = 0;
@@ -203,8 +206,13 @@ void temperature_storage_cycle(){
 	  float temp = calcTemp(r);
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
-		if(!bIndoor)
-	  	lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+(isopen?"OPEN":"CLOSE")+"     ");
+		if(!bIndoor){
+			if(forcevalve==0)
+				lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+(isopen?"OPEN":"CLOSE")+"     ");
+			else
+				lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+String(forcevalve/100)+"     ");
+		}
+	  	
 	  //lcd.print("od "+String(r,1)+"k "+String(temp,1)+"C      ");
   }
 //  if(chk1==DHTLIB_OK){ //室外温度
@@ -342,21 +350,16 @@ void opvalve(bool b){
 		}
 	}
 }
+bool isrelease = true;
 //当外部温度高于35度时周期打开和关闭电磁阀门
 void evalve(){
 	float t = hlogs[ilogs].temp1;
-	if( (t>=38 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
-		//在喷水的状态下经常性的关闭以求更加均匀的喷淋
-		if(valvecycle%SHOCKCYCLE_T < SHOCK_T){
-			opvalve(false);
-		}else{
-			opvalve(true);
-		}
+	if( (t>=38 && valvecycle < OPENCYCLE_T) || forcevalve>0){
+		opvalve(true);
 	}else if(isopen){
 		opvalve(false);
-		//lcd.setBacklight(LOW);
 	}
-	if(valvecycle > ALLCYCLE_T){
+	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T)){
 		valvecycle = 0;
 	}else{
 		valvecycle++;
@@ -367,10 +370,21 @@ void evalve(){
   int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
 	if(openPressA==HIGH && closePressA==LOW){
-		valvecycle = 0;
-		forcevalve = VALVECYCLE_T; //强制打开的周期
+		if(isrelease)
+			forcevalve += 60*100L; //增加60s
+		isrelease = false;
 	}else if(openPressA==LOW && closePressA==HIGH){
+		if(isrelease){
+			forcevalve -= 60*100L; //减少60s
+			if(forcevalve<0)forcevalve = 0;
+		}
+		isrelease = false;
+	}else if(openPressA==HIGH && closePressA==HIGH){ //重置
+		isrelease = true;
+	}else{
 		forcevalve = 0;
+		lcd.setBacklight(HIGH);
+		isrelease = false;
 	}
 }
 
