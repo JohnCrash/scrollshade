@@ -345,7 +345,7 @@ void opvalve(bool b){
 //当外部温度高于35度时周期打开和关闭电磁阀门
 void evalve(){
 	float t = hlogs[ilogs].temp1;
-	if( (t>=25 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
+	if( (t>=38 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
 		//在喷水的状态下经常性的关闭以求更加均匀的喷淋
 		if(valvecycle%SHOCKCYCLE_T < SHOCK_T){
 			opvalve(false);
