@@ -12,10 +12,10 @@
 #define EndStop_A1_Pin 13 //第一扇遮阳帘的展开
 #define EndStop_B0_Pin 8 //第二扇遮阳帘的收起   
 #define EndStop_B1_Pin 9 //第二扇遮阳帘的展开
-#define Open_A_Pin 3  //打开第一扇遮阳帘的按键
-#define Close_A_Pin 4 //关闭第一扇遮阳帘的按键
-#define Open_B_Pin 7  //打开第二扇遮阳帘的按键
-#define Close_B_Pin 6 //关闭第二扇遮阳帘的按键 
+#define Open_A_Pin 4  //打开第一扇遮阳帘的按键
+#define Close_A_Pin 3 //关闭第一扇遮阳帘的按键
+#define Open_B_Pin 6  //打开第二扇遮阳帘的按键
+#define Close_B_Pin 7 //关闭第二扇遮阳帘的按键 
 #define MOTOR_A_PIN0 28 //卷帘电机A控制in0
 #define MOTOR_A_PIN1 26
 #define MOTOR_B_PIN0 24 
@@ -187,11 +187,11 @@ void temperature_storage_cycle(){
 	  if(mode==0)lcd.print("1."+getDHTError(chk0));
   }
   //读取户外的温度与光照强度
-  int lighv = analogRead(OUTDOOR_LIGH_PIN);
+  int lighv = 1024-analogRead(OUTDOOR_LIGH_PIN);
   int tempv = analogRead(OUTDOOR_TEMP_PIN);
   
   if(!bIndoor && mode==0){
-	  float r = 15.0*1024.0/(1024.0-tempv) + 5;
+    float r = 10*tempv/(1024-tempv); //10k
 	  float temp = calcTemp(r);
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
