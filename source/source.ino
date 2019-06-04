@@ -14,8 +14,8 @@
 #define EndStop_B1_Pin 9 //第二扇遮阳帘的展开
 #define Open_A_Pin 4  //打开第一扇遮阳帘的按键
 #define Close_A_Pin 3 //关闭第一扇遮阳帘的按键
-#define Open_B_Pin 6  //打开第二扇遮阳帘的按键
-#define Close_B_Pin 7 //关闭第二扇遮阳帘的按键 
+#define Open_B_Pin 7  //打开第二扇遮阳帘的按键
+#define Close_B_Pin 6 //关闭第二扇遮阳帘的按键 
 #define MOTOR_A_PIN0 28 //卷帘电机A控制in0
 #define MOTOR_A_PIN1 26
 #define MOTOR_B_PIN0 24 
@@ -26,8 +26,10 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define CLOSECYCLE_T (60*100L) 	 //完整周期
-#define OPENCYCLE_T (10*100L)  //打开阀门的时间
+#define CLOSECYCLE_T (60*100L) 	 //关闭阀门的时间
+#define OPENCYCLE_T (10*100L)    //打开阀门的时间
+#define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
+#define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -76,7 +78,12 @@ int lcdlighs = 1000;
 //控制周期计数,每秒增加1满周期重置为0
 long valvecycle = 0;
 long forcevalve = 0;
-bool isopen = false;
+bool isvalveopen = false;
+long fancycle = 0;
+long forcefan = 0;
+bool isfanopen = false;
+bool isreleaseA = true;
+bool isreleaseB = true;
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
@@ -176,7 +183,7 @@ void temperature_storage_cycle(){
 				lowInt2(now.day())+" "+
 				lowInt2(now.hour())+":"+
 				lowInt2(now.minute())+":"+
-				lowInt2(now.second())+"   ");
+				lowInt2(now.second())+" "+(bIndoor?"IN":"OUT"));
 	  
 	  lcd.setCursor(0,1);
   }
@@ -186,10 +193,9 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].humi0 = dht0.humidity;
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0){
-			if(forcevalve==0)
-				lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(isopen?"OPEN":"CLOSE")+"     ");
-			else
-				lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+String(forcevalve/100)+"     ");
+				lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+"% "+
+				(forcevalve==0?String(valvecycle/100):String(forcevalve/100))+(isvalveopen?"V":"N")+
+				(forcefan==0?String(fancycle/100):String(forcefan/100))+(isfanopen?"F     ":"N     "));
 		}
 			
   }else{
@@ -207,10 +213,9 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
 		if(!bIndoor){
-			if(forcevalve==0)
-				lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+(isopen?"OPEN":"CLOSE")+"     ");
-			else
-				lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+String(forcevalve/100)+"     ");
+				lcd.print(String(temp,0)+"C"+String(lighv)+"H "+
+				(forcevalve==0?String(valvecycle/100):String(forcevalve/100))+(isvalveopen?"V":"N")+
+				(forcefan==0?String(fancycle/100):String(forcefan/100))+(isfanopen?"F     ":"N     "));
 		}
 	  	
 	  //lcd.print("od "+String(r,1)+"k "+String(temp,1)+"C      ");
@@ -337,26 +342,43 @@ void manual_control_scroll(int esPin0,int esPin1,
 //操作阀门,true开,false关闭
 void opvalve(bool b){
 	if(b){
-		if(!isopen){
+		if(!isvalveopen){
 		  digitalWrite(MOTOR_A_PIN0,HIGH);
       digitalWrite(MOTOR_A_PIN1,LOW);
-			isopen = true;
+			isvalveopen = true;
 		}
 	}else{
-		if(isopen){
+		if(isvalveopen){
 		  digitalWrite(MOTOR_A_PIN0,LOW);
       digitalWrite(MOTOR_A_PIN1,LOW);
-			isopen = false;
+			isvalveopen = false;
 		}
 	}
 }
-bool isrelease = true;
+
+void opfan(bool b){
+	if(b){
+		if(!isfanopen){
+		  digitalWrite(MOTOR_B_PIN0,HIGH);
+      digitalWrite(MOTOR_B_PIN1,LOW);
+			isfanopen = true;
+		}
+	}else{
+		if(isfanopen){
+		  digitalWrite(MOTOR_B_PIN0,LOW);
+      digitalWrite(MOTOR_B_PIN1,LOW);
+			isfanopen = false;
+		}
+	}
+}
 //当外部温度高于35度时周期打开和关闭电磁阀门
 void evalve(){
-	float t = hlogs[ilogs].temp1;
-	if( (t>=38 && valvecycle < OPENCYCLE_T) || forcevalve>0){
+	float ot = hlogs[ilogs].temp1;
+	float it = hlogs[ilogs].temp0;
+	//自动控制喷淋
+	if( (ot>=38 && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
-	}else if(isopen){
+	}else if(isvalveopen){
 		opvalve(false);
 	}
 	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T)){
@@ -365,27 +387,66 @@ void evalve(){
 		valvecycle++;
 	}
 	if(forcevalve>0)forcevalve--;
+	
+	//自动通风
+	if( (it>=32 && fancycle < OPENFAN_T) || forcefan>0){
+		opfan(true);
+	}else if(isfanopen){
+		opfan(false);
+	}
+	if(fancycle > (OPENFAN_T+CLOSEFAN_T)){
+		fancycle = 0;
+	}else{
+		fancycle++;
+	}
+	if(forcefan>0)forcefan--;
 
+	//控制喷淋
 	int openPressA = digitalRead(Open_A_Pin);
   int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
 	if(openPressA==HIGH && closePressA==LOW){
-		if(isrelease)
+		if(isreleaseA)
 			forcevalve += 60*100L; //增加60s
-		isrelease = false;
+		isreleaseA = false;
+		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
-		if(isrelease){
+		if(isreleaseA){
 			forcevalve -= 60*100L; //减少60s
 			if(forcevalve<0)forcevalve = 0;
 		}
-		isrelease = false;
+		isreleaseA = false;
+		EnableLCDLigh();
 	}else if(openPressA==HIGH && closePressA==HIGH){ //重置
-		isrelease = true;
+		isreleaseA = true;
 	}else{
 		forcevalve = 0;
-		lcd.setBacklight(HIGH);
-		isrelease = false;
+		isreleaseA = false;
+		EnableLCDLigh();
 	}
+	//控制通风
+	int openPressB = digitalRead(Open_B_Pin);
+  int closePressB = digitalRead(Close_B_Pin);
+	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
+	if(openPressB==HIGH && closePressB==LOW){
+		if(isreleaseB)
+			forcefan += 60*100L; //增加60s
+		isreleaseB = false;
+		EnableLCDLigh();
+	}else if(openPressB==LOW && closePressB==HIGH){
+		if(isreleaseB){
+			forcefan -= 60*100L; //减少60s
+			if(forcefan<0)forcefan = 0;
+		}
+		isreleaseB = false;
+		EnableLCDLigh();
+	}else if(openPressB==HIGH && closePressB==HIGH){ //重置
+		isreleaseB = true;
+	}else{
+		forcefan = 0;
+		isreleaseB = false;
+		EnableLCDLigh();
+	}	
 }
 
 //在设置时间时使用第一个电机控制来增减数字,如果不控制则不会修改。
