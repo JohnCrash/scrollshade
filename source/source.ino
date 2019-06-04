@@ -26,8 +26,10 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define ALLCYCLE_T 10*60*100 	 //完整周期
-#define VALVECYCLE_T 2*60*100  //打开阀门的时间
+#define ALLCYCLE_T (10*60*100L) 	 //完整周期
+#define VALVECYCLE_T (2*60*100L)  //打开阀门的时间
+#define SHOCKCYCLE_T (VALVECYCLE_T/5) //(整数)再打开阀门时还进行开关操作让水撒的更加均匀
+#define SHOCK_T (3*100)					 //每次关闭的时间
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -72,6 +74,11 @@ hourlog hlogs[60];
 int lastSwitchIndoorOurdoor = HIGH;
 
 int lcdlighs = 1000;
+
+//控制周期计数,每秒增加1满周期重置为0
+long valvecycle = 0;
+long forcevalve = 0;
+bool isopen = false;
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
@@ -176,11 +183,12 @@ void temperature_storage_cycle(){
 	  lcd.setCursor(0,1);
   }
   if(chk0==DHTLIB_OK){ //室内温度
+		dht0.temperature -= 3; //修正下温度，好像总是高3度
 	  hlogs[ilogs].temp0 = dht0.temperature;
 	  hlogs[ilogs].humi0 = dht0.humidity;
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0)
-		lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
+			lcd.print("id "+String(dht0.temperature,0)+"C "+String(dht0.humidity,0)+"% "+(isopen?"OPEN":"CLOSE")+"     ");
   }else{
 	  hlogs[ilogs].temp0 = 0;
 	  hlogs[ilogs].humi0 = 0;
@@ -190,12 +198,13 @@ void temperature_storage_cycle(){
   int lighv = 1024-analogRead(OUTDOOR_LIGH_PIN);
   int tempv = analogRead(OUTDOOR_TEMP_PIN);
   
-  if(!bIndoor && mode==0){
+  if(mode==0){
     float r = 10*tempv/(1024-tempv); //10k
 	  float temp = calcTemp(r);
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
-	  lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H     ");
+		if(!bIndoor)
+	  	lcd.print("od "+String(temp,0)+"C "+String(lighv,DEC)+"H "+(isopen?"OPEN":"CLOSE")+"     ");
 	  //lcd.print("od "+String(r,1)+"k "+String(temp,1)+"C      ");
   }
 //  if(chk1==DHTLIB_OK){ //室外温度
@@ -317,23 +326,35 @@ void manual_control_scroll(int esPin0,int esPin1,
   }
 }
 
-//控制周期计数,每秒增加1满周期重置为0
-int valvecycle = 0;
-int forcevalve = 0;
-bool isopen = false;
-//当外部温度高于35度时周期打开和关闭电磁阀门
-void evalve(){
-	float t = hlogs[ilogs].temp1;
-	if( (t>=35 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
+//操作阀门,true开,false关闭
+void opvalve(bool b){
+	if(b){
 		if(!isopen){
 		  digitalWrite(MOTOR_A_PIN0,HIGH);
       digitalWrite(MOTOR_A_PIN1,LOW);
 			isopen = true;
 		}
-	}else if(isopen){
+	}else{
+		if(isopen){
 		  digitalWrite(MOTOR_A_PIN0,LOW);
       digitalWrite(MOTOR_A_PIN1,LOW);
 			isopen = false;
+		}
+	}
+}
+//当外部温度高于35度时周期打开和关闭电磁阀门
+void evalve(){
+	float t = hlogs[ilogs].temp1;
+	if( (t>=25 || forcevalve>0) && valvecycle <= VALVECYCLE_T){
+		//在喷水的状态下经常性的关闭以求更加均匀的喷淋
+		if(valvecycle%SHOCKCYCLE_T < SHOCK_T){
+			opvalve(false);
+		}else{
+			opvalve(true);
+		}
+	}else if(isopen){
+		opvalve(false);
+		//lcd.setBacklight(LOW);
 	}
 	if(valvecycle > ALLCYCLE_T){
 		valvecycle = 0;
