@@ -374,9 +374,9 @@ void opfan(bool b){
 //当外部温度高于35度时周期打开和关闭电磁阀门
 void evalve(){
 	float ot = hlogs[ilogs].temp1;
-	float it = hlogs[ilogs].temp0;
+//	float it = hlogs[ilogs].temp0;
 	//自动控制喷淋
-	if( (ot>=38 && valvecycle < OPENCYCLE_T) || forcevalve>0){
+	if( (ot>=36 && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
 	}else if(isvalveopen){
 		opvalve(false);
@@ -389,7 +389,7 @@ void evalve(){
 	if(forcevalve>0)forcevalve--;
 	
 	//自动通风
-	if( (it>=32 && fancycle < OPENFAN_T) || forcefan>0){
+	if( (ot>=32 && fancycle < OPENFAN_T) || forcefan>0){
 		opfan(true);
 	}else if(isfanopen){
 		opfan(false);
