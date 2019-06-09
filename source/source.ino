@@ -26,8 +26,8 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define CLOSECYCLE_T (60*100L) 	 //关闭阀门的时间
-#define OPENCYCLE_T (10*100L)    //打开阀门的时间
+#define CLOSECYCLE_T (240*100L) 	 //关闭阀门的时间
+#define OPENCYCLE_T (30*100L)    //打开阀门的时间
 #define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
 #define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
 //温度湿度传感器DHT22资料
@@ -378,7 +378,7 @@ void evalve(){
 	//自动控制喷淋
 	if( (ot>=36 && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
-	}else if(isvalveopen){
+	}else if(valvecycle > OPENCYCLE_T){
 		opvalve(false);
 	}
 	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T)){
@@ -389,9 +389,9 @@ void evalve(){
 	if(forcevalve>0)forcevalve--;
 	
 	//自动通风
-	if( (ot>=32 && fancycle < OPENFAN_T) || forcefan>0){
+	if( (ot>=40 && fancycle < OPENFAN_T) || forcefan>0){
 		opfan(true);
-	}else if(isfanopen){
+	}else if(fancycle > OPENFAN_T){
 		opfan(false);
 	}
 	if(fancycle > (OPENFAN_T+CLOSEFAN_T)){
