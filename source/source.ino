@@ -84,6 +84,7 @@ long forcefan = 0;
 bool isfanopen = false;
 bool isreleaseA = true;
 bool isreleaseB = true;
+int  dmaxt = 0;
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
@@ -186,6 +187,10 @@ void temperature_storage_cycle(){
 				lowInt2(now.second())+" "+(bIndoor?"IN":"OUT"));
 	  
 	  lcd.setCursor(0,1);
+	  //如果今天的顶部最高气温超过了40度，在晚上的6点强制喷淋1分钟
+	  if(dmaxt > 40 && now.hour()==18 && now.minute()==0 && now.second()==0){
+		forcevalve = 60*100L;
+	  }
   }
   if(chk0==DHTLIB_OK){ //室内温度
 		dht0.temperature -= 3; //修正下温度，好像总是高3度
@@ -375,6 +380,10 @@ void opfan(bool b){
 void evalve(){
 	float ot = hlogs[ilogs].temp1;
 //	float it = hlogs[ilogs].temp0;
+	//如果今天的最高外部气温高于38度就在晚上6点开一分钟喷淋进行降温
+	if(ot>dmaxt){
+		dmaxt = ot;
+	}
 	//自动控制喷淋
 	if( (ot>=36 && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
