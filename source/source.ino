@@ -130,7 +130,7 @@ void writeHourlog(){
 		lastMinute = now.minute();
 		
 		if(now.hour()!=lastHour && ilogs){
-			String filename = lowInt2(now.year())+lowInt2(now.month())+
+			String filename =  (now.year())+lowInt2(now.month())+
 								lowInt2(now.day())+
 								lowInt2(now.hour())+".log";
 			File f = SD.open(filename,FILE_WRITE);
@@ -190,6 +190,7 @@ void temperature_storage_cycle(){
 	  //如果今天的顶部最高气温超过了40度，在晚上的6点强制喷淋1分钟
 	  if(dmaxt > 40 && now.hour()==18 && now.minute()==0 && now.second()==0){
 		forcevalve = 60*100L;
+		dmaxt = 0;
 	  }
   }
   if(chk0==DHTLIB_OK){ //室内温度
