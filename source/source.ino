@@ -27,7 +27,9 @@
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
 #define CLOSECYCLE_T (240*100L) 	 //关闭阀门的时间
-#define OPENCYCLE_T (30*100L)    //打开阀门的时间
+#define OPENCYCLE_T (45*100L)    //打开阀门的时间
+#define OPENCYCLE_T1 (30*100L) //上排开启时间
+#define OPENCYCLE_T2 (15*100L) //下排开启时间
 #define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
 #define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
 //温度湿度传感器DHT22资料
@@ -187,8 +189,8 @@ void temperature_storage_cycle(){
 				lowInt2(now.second())+" "+(bIndoor?"IN":"OUT"));
 	  
 	  lcd.setCursor(0,1);
-	  //如果今天的顶部最高气温超过了40度，在晚上的6点强制喷淋1分钟
-	  if(dmaxt > 40 && now.hour()==18 && now.minute()==0 && now.second()==0){
+	  //如果今天的顶部最高气温超过了45度，在晚上的6点强制喷淋1分钟
+	  if(dmaxt > 45 && now.hour()==18 && now.minute()==0 && now.second()==0){
 		forcevalve = 60*100L;
 		dmaxt = 0;
 	  }
@@ -345,19 +347,49 @@ void manual_control_scroll(int esPin0,int esPin1,
   }
 }
 
+long cylet = 0;
+bool switchvalve = true;
 //操作阀门,true开,false关闭
+//分为上排的喷头和下排的喷头,周期循环先上面开OPENCYCLE_T1(30秒)，然后下面开OPENCYCLE_T2(15秒)
 void opvalve(bool b){
 	if(b){
 		if(!isvalveopen){
-		  digitalWrite(MOTOR_A_PIN0,HIGH);
-      digitalWrite(MOTOR_A_PIN1,LOW);
+		  	digitalWrite(MOTOR_A_PIN0,HIGH);
+      		digitalWrite(MOTOR_A_PIN1,LOW);
+		  	digitalWrite(MOTOR_B_PIN0,LOW);
+      		digitalWrite(MOTOR_B_PIN1,LOW);				  
 			isvalveopen = true;
+			switchvalve = true;
+			cylet  = OPENCYCLE_T1;
+		}else{
+			//开始周期开关A和B
+			cylet--;
+			if(cylet<=0){
+				if(switchvalve){
+					switchvalve = false;
+					cylet = OPENCYCLE_T2;
+		  			digitalWrite(MOTOR_A_PIN0,LOW);
+      				digitalWrite(MOTOR_A_PIN1,LOW);
+		  			digitalWrite(MOTOR_B_PIN0,HIGH);
+      				digitalWrite(MOTOR_B_PIN1,LOW);							
+				}else{
+					switchvalve = true;
+					cylet = OPENCYCLE_T1;
+		  			digitalWrite(MOTOR_A_PIN0,HIGH);
+      				digitalWrite(MOTOR_A_PIN1,LOW);
+		  			digitalWrite(MOTOR_B_PIN0,LOW);
+      				digitalWrite(MOTOR_B_PIN1,LOW);							
+				}
+			}
 		}
 	}else{
 		if(isvalveopen){
-		  digitalWrite(MOTOR_A_PIN0,LOW);
-      digitalWrite(MOTOR_A_PIN1,LOW);
+		  	digitalWrite(MOTOR_A_PIN0,LOW);
+      		digitalWrite(MOTOR_A_PIN1,LOW);
+		  	digitalWrite(MOTOR_B_PIN0,LOW);
+      		digitalWrite(MOTOR_B_PIN1,LOW);			  
 			isvalveopen = false;
+			cylet = 0;
 		}
 	}
 }
@@ -365,14 +397,14 @@ void opvalve(bool b){
 void opfan(bool b){
 	if(b){
 		if(!isfanopen){
-		  digitalWrite(MOTOR_B_PIN0,HIGH);
-      digitalWrite(MOTOR_B_PIN1,LOW);
+		  	digitalWrite(MOTOR_B_PIN0,HIGH);
+     	  	digitalWrite(MOTOR_B_PIN1,LOW);
 			isfanopen = true;
 		}
 	}else{
 		if(isfanopen){
-		  digitalWrite(MOTOR_B_PIN0,LOW);
-      digitalWrite(MOTOR_B_PIN1,LOW);
+		  	digitalWrite(MOTOR_B_PIN0,LOW);
+      		digitalWrite(MOTOR_B_PIN1,LOW);
 			isfanopen = false;
 		}
 	}
@@ -381,12 +413,12 @@ void opfan(bool b){
 void evalve(){
 	float ot = hlogs[ilogs].temp1;
 //	float it = hlogs[ilogs].temp0;
-	//如果今天的最高外部气温高于38度就在晚上6点开一分钟喷淋进行降温
+	//如果今天的最高外部气温高于45度就在晚上6点开一分钟喷淋进行降温
 	if(ot>dmaxt){
 		dmaxt = ot;
 	}
 	//自动控制喷淋
-	if( (ot>=36 && valvecycle < OPENCYCLE_T) || forcevalve>0){
+	if( (ot>=40 && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
 	}else if(valvecycle > OPENCYCLE_T){
 		opvalve(false);
@@ -435,6 +467,7 @@ void evalve(){
 		EnableLCDLigh();
 	}
 	//控制通风
+	/*
 	int openPressB = digitalRead(Open_B_Pin);
   int closePressB = digitalRead(Close_B_Pin);
 	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
@@ -456,7 +489,7 @@ void evalve(){
 		forcefan = 0;
 		isreleaseB = false;
 		EnableLCDLigh();
-	}	
+	}	*/
 }
 
 //在设置时间时使用第一个电机控制来增减数字,如果不控制则不会修改。
