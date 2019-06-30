@@ -26,10 +26,10 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define CLOSECYCLE_T (240*100L) 	 //关闭阀门的时间
-#define OPENCYCLE_T (45*100L)    //打开阀门的时间
+#define CLOSECYCLE_T (8*60*100L) 	 //关闭阀门的时间
+#define OPENCYCLE_T (50*100L)    //打开阀门的时间
 #define OPENCYCLE_T1 (30*100L) //上排开启时间
-#define OPENCYCLE_T2 (15*100L) //下排开启时间
+#define OPENCYCLE_T2 (20*100L) //下排开启时间
 #define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
 #define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
 //温度湿度传感器DHT22资料
@@ -431,6 +431,7 @@ void evalve(){
 	if(forcevalve>0)forcevalve--;
 	
 	//自动通风
+	/*
 	if( (ot>=40 && fancycle < OPENFAN_T) || forcefan>0){
 		opfan(true);
 	}else if(fancycle > OPENFAN_T){
@@ -442,7 +443,7 @@ void evalve(){
 		fancycle++;
 	}
 	if(forcefan>0)forcefan--;
-
+    */
 	//控制喷淋
 	int openPressA = digitalRead(Open_A_Pin);
   int closePressA = digitalRead(Close_A_Pin);
