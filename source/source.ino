@@ -26,10 +26,10 @@
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
 #define SWITCH_INDOOR_OUTDOOR_PIN 2 //切换室内室外温度，坚固开灯的作用
-#define CLOSECYCLE_T (8*60*100L) 	 //关闭阀门的时间
-#define OPENCYCLE_T (50*100L)    //打开阀门的时间
+#define CLOSECYCLE_T (6*60*100L) 	 //关闭阀门的时间
+#define OPENCYCLE_T (60*100L)    //打开阀门的时间
 #define OPENCYCLE_T1 (30*100L) //上排开启时间
-#define OPENCYCLE_T2 (20*100L) //下排开启时间
+#define OPENCYCLE_T2 (30*100L) //下排开启时间
 #define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
 #define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
 //温度湿度传感器DHT22资料
@@ -87,6 +87,7 @@ bool isfanopen = false;
 bool isreleaseA = true;
 bool isreleaseB = true;
 int  dmaxt = 0;
+DateTime now;
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
@@ -178,8 +179,9 @@ String getDHTError(int chk){
 void temperature_storage_cycle(){
   int chk0 = dht0.read22(DHT22_PIN0);
 //  int chk1 = dht1.read22(DHT22_PIN1);
+  now = rtc.now();
   if(mode==0){
-	  DateTime now = rtc.now();
+	  
 	  //显示时钟00:00:00-
 	  lcd.setCursor(0,0);
 	  lcd.print(lowInt2(now.month())+"/"+
@@ -217,7 +219,7 @@ void temperature_storage_cycle(){
   
   if(mode==0){
     float r = 10*tempv/(1024-tempv); //10k
-	  float temp = calcTemp(r);
+	  float temp = calcTemp(r) - 15; //修正
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
 		if(!bIndoor){
@@ -412,18 +414,26 @@ void opfan(bool b){
 //当外部温度高于35度时周期打开和关闭电磁阀门
 void evalve(){
 	float ot = hlogs[ilogs].temp1;
+	int hour = now.hour();
 //	float it = hlogs[ilogs].temp0;
 	//如果今天的最高外部气温高于45度就在晚上6点开一分钟喷淋进行降温
 	if(ot>dmaxt){
 		dmaxt = ot;
 	}
 	//自动控制喷淋
-	if( (ot>=40 && valvecycle < OPENCYCLE_T) || forcevalve>0){
+	//打开条件,两级控制 8:00-10:00 10:00-15:00 15:00-18:00 上个区间
+	//8:00-10:00 15:00-18:00 温度大于30度 每8分钟开一分钟
+	//10:00-15:00 温度大于35度 密度加倍就是4分钟开1分钟
+	bool b1 = ot >= 30 && ((hour>=8 && hour<=10) || (hour>=15&&hour<=18)); 
+	bool b2 = ot >= 35 && (hour>=10 && hour<=15); 
+	bool b = b1 || b2;
+	float s = b2 ? 2 : 1;
+	if( (b && valvecycle < OPENCYCLE_T) || forcevalve>0){
 		opvalve(true);
 	}else if(valvecycle > OPENCYCLE_T){
 		opvalve(false);
 	}
-	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T)){
+	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T/s)){
 		valvecycle = 0;
 	}else{
 		valvecycle++;
