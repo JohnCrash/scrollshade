@@ -20,8 +20,9 @@
 #define MOTOR_A_PIN1 26
 #define MOTOR_B_PIN0 24 
 #define MOTOR_B_PIN1 22  
-#define DHT22_PIN0 15
-#define DHT22_PIN1 11
+#define DHT22_PIN0 11
+#define DHT22_PIN1 15
+#define JSOPEN_PIN 30
 #define OUTDOOR_LIGH_PIN A1
 #define OUTDOOR_TEMP_PIN A2
 #define SET_DATETIME_PIN 5 //设置当前时钟
@@ -78,15 +79,12 @@ int lastSwitchIndoorOurdoor = HIGH;
 int lcdlighs = 1000;
 
 //控制周期计数,每秒增加1满周期重置为0
-long valvecycle = 0;
-long forcevalve = 0;
-bool isvalveopen = false;
-long fancycle = 0;
 long forcefan = 0;
+long forcejs = 0;
 bool isfanopen = false;
+bool isjsopen = false;
 bool isreleaseA = true;
 bool isreleaseB = true;
-int  dmaxt = 0;
 DateTime now;
 
 void EnableLCDLigh(){
@@ -188,14 +186,9 @@ void temperature_storage_cycle(){
 				lowInt2(now.day())+" "+
 				lowInt2(now.hour())+":"+
 				lowInt2(now.minute())+":"+
-				lowInt2(now.second())+" "+(bIndoor?"IN":"OUT"));
+				lowInt2(now.second()));
 	  
 	  lcd.setCursor(0,1);
-	  //如果今天的顶部最高气温超过了45度，在晚上的6点强制喷淋1分钟
-	  if(dmaxt > 45 && now.hour()==18 && now.minute()==0 && now.second()==0){
-		forcevalve = 60*100L;
-		dmaxt = 0;
-	  }
   }
   if(chk0==DHTLIB_OK){ //室内温度
 	//	dht0.temperature -= 3; //修正下温度，好像总是高3度
@@ -203,9 +196,7 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].humi0 = dht0.humidity;
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0){
-				lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+"% "+
-				(forcevalve==0?String(valvecycle/100):String(forcevalve/100))+(isvalveopen?"V":"N")+
-				(forcefan==0?String(fancycle/100):String(forcefan/100))+(isfanopen?"F     ":"N     "));
+				lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+"% ");
 		}
 			
   }else{
@@ -223,12 +214,8 @@ void temperature_storage_cycle(){
 	  hlogs[ilogs].temp1 = temp;
 	  hlogs[ilogs].light = lighv;
 		if(!bIndoor){
-				lcd.print(String(temp,0)+"C"+String(lighv)+"H "+
-				(forcevalve==0?String(valvecycle/100):String(forcevalve/100))+(isvalveopen?"V":"N")+
-				(forcefan==0?String(fancycle/100):String(forcefan/100))+(isfanopen?"F     ":"N     "));
+				lcd.print(String(temp,0)+"C"+String(lighv)+"H ");
 		}
-	  	
-	  //lcd.print("od "+String(r,1)+"k "+String(temp,1)+"C      ");
   }
 //  if(chk1==DHTLIB_OK){ //室外温度
 //	  hlogs[ilogs].temp1 = dht1.temperature;
@@ -268,6 +255,7 @@ void setup(){
   pinMode(MOTOR_A_PIN1,OUTPUT);
   pinMode(MOTOR_B_PIN0,OUTPUT);
   pinMode(MOTOR_B_PIN1,OUTPUT);
+  pinMode(JSOPEN_PIN,OUTPUT);
   digitalWrite(MOTOR_A_PIN0,LOW); //关闭电机
   digitalWrite(MOTOR_A_PIN1,LOW);
   digitalWrite(MOTOR_B_PIN0,LOW);
@@ -277,15 +265,8 @@ void setup(){
   lcd.begin(16,2);
   lcd.setBacklightPin(3,POSITIVE);
   EnableLCDLigh();
-//  lcd.print("lcd init ok");
   //设置串口用于调试和命令传送
   Serial.begin(115200);
-//  Serial.println("Serial ok");
-//  lcd.setCursor(0,1);
-//  lcd.setBacklight(LOW);
-//  lcd.print("init sd card...");
-//  lcd.setCursor(0,0);
-//  lcd.print("<===>.....<===>.?@#$");
   //初始化SD card
   SDInit();
   //从外部芯片取出当前时间
@@ -294,213 +275,128 @@ void setup(){
   lastMinute = now.minute();  
 }
 
-//电机卷帘控制
-void manual_control_scroll(int esPin0,int esPin1,
-            int openPin,int closePin,
-            int motorPin0,int motorPin1,
-            bool* pstate,bool* pswitching){
-  int openPress = digitalRead(openPin);
-  int closePress = digitalRead(closePin);
-  int motorCmd = 0; //停止转动,1打开,2关闭
-  if(openPress==LOW && closePress==LOW){ //都按下切换控制状态
-    *pstate = true;
-    *pswitching = true;
-	EnableLCDLigh();
-  }else if(openPress==HIGH && closePress==HIGH){ //没有命令
-    *pswitching = false;
-    if(*pstate){
-      //自动控制,以一小时为周期做控制
-
-    }
-  }else if(openPress==LOW){ //命令打开
-    if(!*pswitching){ //单独按键，没有进入切换状态
-      *pstate = false;
-      //open scroll
-      if(digitalRead(esPin1)==HIGH){ //还未完全打开
-        //继续打开
-        motorCmd = 1;
-      }
-    }
-	EnableLCDLigh();
-  }else{ //命令关闭 
-    if(!*pswitching){ //单独按键，没有进入切换状态
-      *pstate = false;
-      //close scroll
-      if(digitalRead(esPin0)==HIGH){ //还未完全关闭
-        //继续关闭
-        motorCmd = 2;
-      }
-    } 
-	EnableLCDLigh();
-  }
-  switch(motorCmd){
-    case 0://停止
-      digitalWrite(motorPin0,LOW);
-      digitalWrite(motorPin1,LOW);
-      break;
-    case 1://打开
-      digitalWrite(motorPin0,HIGH);
-      digitalWrite(motorPin1,LOW);
-      break;
-    case 2://关闭
-      digitalWrite(motorPin0,LOW);
-      digitalWrite(motorPin1,HIGH);
-      break;
-  }
-}
-
-long cylet = 0;
-bool switchvalve = true;
-//操作阀门,true开,false关闭
-//分为上排的喷头和下排的喷头,周期循环先上面开OPENCYCLE_T1(30秒)，然后下面开OPENCYCLE_T2(15秒)
-void opvalve(bool b){
-	if(b){
-		if(!isvalveopen){
-		  	digitalWrite(MOTOR_A_PIN0,HIGH);
-      		digitalWrite(MOTOR_A_PIN1,LOW);
-		  	digitalWrite(MOTOR_B_PIN0,LOW);
-      		digitalWrite(MOTOR_B_PIN1,LOW);				  
-			isvalveopen = true;
-			switchvalve = true;
-			cylet  = OPENCYCLE_T1;
-		}else{
-			//开始周期开关A和B
-			cylet--;
-			if(cylet<=0){
-				if(switchvalve){
-					switchvalve = false;
-					cylet = OPENCYCLE_T2;
-		  			digitalWrite(MOTOR_A_PIN0,LOW);
-      				digitalWrite(MOTOR_A_PIN1,LOW);
-		  			digitalWrite(MOTOR_B_PIN0,HIGH);
-      				digitalWrite(MOTOR_B_PIN1,LOW);							
-				}else{
-					switchvalve = true;
-					cylet = OPENCYCLE_T1;
-		  			digitalWrite(MOTOR_A_PIN0,HIGH);
-      				digitalWrite(MOTOR_A_PIN1,LOW);
-		  			digitalWrite(MOTOR_B_PIN0,LOW);
-      				digitalWrite(MOTOR_B_PIN1,LOW);							
-				}
-			}
-		}
-	}else{
-		if(isvalveopen){
-		  	digitalWrite(MOTOR_A_PIN0,LOW);
-      		digitalWrite(MOTOR_A_PIN1,LOW);
-		  	digitalWrite(MOTOR_B_PIN0,LOW);
-      		digitalWrite(MOTOR_B_PIN1,LOW);			  
-			isvalveopen = false;
-			cylet = 0;
-		}
-	}
-}
-
-void opfan(bool b){
+//打开或者关闭风扇
+void openfan(bool b){
 	if(b){
 		if(!isfanopen){
-		  	digitalWrite(MOTOR_B_PIN0,HIGH);
-     	  	digitalWrite(MOTOR_B_PIN1,LOW);
+		  digitalWrite(MOTOR_A_PIN0,HIGH);
+     	digitalWrite(MOTOR_A_PIN1,LOW);
 			isfanopen = true;
 		}
 	}else{
 		if(isfanopen){
-		  	digitalWrite(MOTOR_B_PIN0,LOW);
-      		digitalWrite(MOTOR_B_PIN1,LOW);
+		  digitalWrite(MOTOR_A_PIN0,LOW);
+      digitalWrite(MOTOR_A_PIN1,LOW);
 			isfanopen = false;
 		}
-	}
+	}  
 }
-//当外部温度高于35度时周期打开和关闭电磁阀门
+
+//打开或者关闭加湿
+void openjs(bool b){
+	if(b){
+		if(!isjsopen){
+		  digitalWrite(MOTOR_B_PIN0,HIGH);
+     	digitalWrite(MOTOR_B_PIN1,LOW);
+			isjsopen = true;
+      digitalWrite(JSOPEN_PIN,HIGH);
+      delay(200);
+      digitalWrite(JSOPEN_PIN,LOW);
+      delay(200);
+      digitalWrite(JSOPEN_PIN,HIGH);
+		}
+	}else{
+		if(isjsopen){
+		  digitalWrite(MOTOR_B_PIN0,LOW);
+      digitalWrite(MOTOR_B_PIN1,LOW);
+			isjsopen = false;
+		}
+	} 
+}
+bool prevforce = false;
+//当温度高于30度或者湿度大于80%打开风扇，当湿度低于55打开加湿，70停止加湿
+//每天6点和18点后打开风扇1小时
 void evalve(){
-	float ot = hlogs[ilogs].temp1;
+	float ot = hlogs[ilogs].temp0;
+  float oh = hlogs[ilogs].humi0;
 	int hour = now.hour();
-//	float it = hlogs[ilogs].temp0;
-	//如果今天的最高外部气温高于45度就在晚上6点开一分钟喷淋进行降温
-	if(ot>dmaxt){
-		dmaxt = ot;
-	}
-	//自动控制喷淋
-	//打开条件,两级控制 8:00-10:00 10:00-15:00 15:00-18:00 上个区间
-	//8:00-10:00 15:00-18:00 温度大于30度 每8分钟开一分钟
-	//10:00-15:00 温度大于35度 密度加倍就是4分钟开1分钟
-	bool b1 = ot >= 30 && ((hour>=8 && hour<=10) || (hour>=15&&hour<=18)); 
-	bool b2 = ot >= 35 && (hour>=10 && hour<=15); 
-	bool b = b1 || b2;
-	float s = b2 ? 2 : 1;
-	if( (b && valvecycle < OPENCYCLE_T) || forcevalve>0){
-		opvalve(true);
-	}else if(valvecycle > OPENCYCLE_T){
-		opvalve(false);
-	}
-	if(valvecycle > (OPENCYCLE_T+CLOSECYCLE_T/s)){
-		valvecycle = 0;
-	}else{
-		valvecycle++;
-	}
-	if(forcevalve>0)forcevalve--;
-	
-	//自动通风
-	/*
-	if( (ot>=40 && fancycle < OPENFAN_T) || forcefan>0){
-		opfan(true);
-	}else if(fancycle > OPENFAN_T){
-		opfan(false);
-	}
-	if(fancycle > (OPENFAN_T+CLOSEFAN_T)){
-		fancycle = 0;
-	}else{
-		fancycle++;
-	}
-	if(forcefan>0)forcefan--;
-    */
-	//控制喷淋
+  //湿度控制在55%~70%
+  if(forcejs>0){
+    openjs(true);
+    prevforce = true;
+  }else{
+    if(prevforce)
+      openjs(false);
+
+    if(oh>70){
+      openjs(false);
+    }else if(oh<55 && oh>5){
+      openjs(true);
+    }
+    prevforce = false;
+  }
+  if(forcejs>0){
+    forcejs--;
+  }
+  //风扇控制
+  if(forcefan>0){
+    openfan(true);
+  }else{
+    if(ot>=30 || oh>=80 || hour==6 || hour==18){
+      openfan(true);
+    }else{
+      openfan(false);
+    }
+  }
+  if(forcefan>0)forcefan--;
+	//手动控制风扇
 	int openPressA = digitalRead(Open_A_Pin);
   int closePressA = digitalRead(Close_A_Pin);
-	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
+	//openPressA 打开风扇10分钟
 	if(openPressA==HIGH && closePressA==LOW){
 		if(isreleaseA)
-			forcevalve += 60*100L; //增加60s
+			forcefan += 10*60*100L; //增加10分钟
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
 		if(isreleaseA){
-			forcevalve -= 60*100L; //减少60s
-			if(forcevalve<0)forcevalve = 0;
+			forcefan -= 10*60*100L; //减少10分钟
+			if(forcefan<0)forcefan = 0;
 		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==HIGH && closePressA==HIGH){ //重置
 		isreleaseA = true;
 	}else{
-		forcevalve = 0;
+		forcefan = 0;
 		isreleaseA = false;
 		EnableLCDLigh();
 	}
-	//控制通风
-	/*
+	//手动控制湿度
 	int openPressB = digitalRead(Open_B_Pin);
   int closePressB = digitalRead(Close_B_Pin);
-	//openPressA 马上打开打开电磁阀周期结束关闭,closePressA 马上关闭电磁阀
+	//openPressA 打开加湿器10分钟
 	if(openPressB==HIGH && closePressB==LOW){
 		if(isreleaseB)
-			forcefan += 60*100L; //增加60s
+			forcejs += 10*60*100L; //增加10分钟
 		isreleaseB = false;
 		EnableLCDLigh();
 	}else if(openPressB==LOW && closePressB==HIGH){
 		if(isreleaseB){
-			forcefan -= 60*100L; //减少60s
-			if(forcefan<0)forcefan = 0;
+			forcejs -= 10*60*100L; //减少10分钟
+			if(forcejs<0){
+        forcejs = 0;
+      }
 		}
 		isreleaseB = false;
 		EnableLCDLigh();
 	}else if(openPressB==HIGH && closePressB==HIGH){ //重置
 		isreleaseB = true;
 	}else{
-		forcefan = 0;
+		forcejs = 0;
 		isreleaseB = false;
 		EnableLCDLigh();
-	}	*/
+	}
 }
 
 //在设置时间时使用第一个电机控制来增减数字,如果不控制则不会修改。
