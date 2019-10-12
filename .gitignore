@@ -30,3 +30,4 @@
 *.exe
 *.out
 *.app
+greenpi/node_modules/
