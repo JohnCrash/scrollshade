@@ -194,6 +194,7 @@ void temperature_storage_cycle(){
 	//	dht0.temperature -= 3; //修正下温度，好像总是高3度
 	  hlogs[ilogs].temp0 = dht0.temperature;
 	  hlogs[ilogs].humi0 = dht0.humidity;
+	  Serial.println(String(dht0.temperature,DEC)+","+String(dht0.humidity,DEC));
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0){
 				lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+"% ");
@@ -325,15 +326,19 @@ void evalve(){
     openjs(true);
     prevforce = true;
   }else{
-    if(prevforce)
-      openjs(false);
+	if(isfanopen){ //如果在通风则关闭加湿
+	  openjs(false);
+  	}else {
+		if(prevforce)
+			openjs(false);
 
-    if(oh>70){
-      openjs(false);
-    }else if(oh<55 && oh>5){
-      openjs(true);
-    }
-    prevforce = false;
+		if(oh>70){
+			openjs(false);
+		}else if(oh<55 && oh>5){
+			openjs(true);
+		}
+		prevforce = false;
+  	}
   }
   if(forcejs>0){
     forcejs--;
