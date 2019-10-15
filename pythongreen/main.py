@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
+import zmq
+import os
 import time
 import math
 import RPi.GPIO as GPIO
 import Adafruit_DHT
 import sqlite3
-from flask import Flask,escape,request
-from multiprocessing import Process,Queue
+from multiprocessing import Process
 
-cmd = Queue()
 sensorType = 22 #dht22温湿度传感器
 sensorPin = 18 #dht22读取pin
 jspowerPin = 11 #加速器电源pin
@@ -17,11 +17,6 @@ isfanopen = False
 isjsopen = False
 jsopentime = 0
 last_min = 0
-
-GPIO.setmode(GPIO.BOARD)
-GPIO.setup(jspowerPin,GPIO.OUT)
-GPIO.setup(jsswitchPin,GPIO.OUT)
-GPIO.setup(fanPin,GPIO.OUT)
 
 #每分钟将数据写入到数据库中
 def writeSql60(temp,humi):
@@ -72,7 +67,10 @@ def openFan(b):
             isfanopen = False
 
 def MainLoop():
-    global cmd
+    GPIO.setmode(GPIO.BOARD)
+    GPIO.setup(jspowerPin,GPIO.OUT)
+    GPIO.setup(jsswitchPin,GPIO.OUT)
+    GPIO.setup(fanPin,GPIO.OUT)    
     while True:
         humi,temp = 0,0
         try:
@@ -91,8 +89,6 @@ def MainLoop():
             elif humi<55 and humi>5:
                 openJs(True)
             writeSql60(temp,humi)
-            while not cmd.empty() :
-                print(cmd.get())
             time.sleep(1)
         except ValueError as e:
             print(e)
@@ -104,20 +100,25 @@ def MainLoop():
             print(e)
             continue
 
-def B():
-    global cmd
+#执行来自外部的命令
+def executeProcess():
+    context = zmq.Context()
+    socket = context.socket(zmq.REP)
+    socket.bind("tcp://*:5555")    
     while True:
-        cmd.put('hello B')
-        time.sleep(5)
+        message = socket.recv()
+        if message=='fanON':
+            print('fanON')
+        elif message=='fanOFF':
+            print('fanOFF')
+        socket.send('ok')
 
-Main = Process(target=MainLoop)
-B = Process(target=B)
-B.start()
-Main.start()
-
-app = Flask(__name__)
-@app.route('/')
-def hello_world():
-    global cmd
-    cmd.put('do it')
-    return 'Hello, World!'
+pid = os.fork()
+if pid>0:
+    #启动http服务
+    os.environ['FLASK_APP']='www.py'
+    os.execve('/usr/local/bin/flask',['flask','run','--host=0.0.0.0'],os.environ)
+else:
+    e = Process(target=executeProcess)
+    e.start()    
+    MainLoop()
