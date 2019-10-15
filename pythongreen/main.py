@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 import time
+import math
 import RPi.GPIO as GPIO
 import Adafruit_DHT
 import sqlite3
+from flask import Flask,escape,request
+from multiprocessing import Process,Queue
 
-
+cmd = Queue()
 sensorType = 22 #dht22温湿度传感器
 sensorPin = 18 #dht22读取pin
 jspowerPin = 11 #加速器电源pin
@@ -28,7 +31,7 @@ def writeSql60(temp,humi):
         try:
             print('write data')
             conn = sqlite3.connect('./db/green.db')
-            conn.execute("INSERT INTO data VALUES (datetime(),?,?)",(temp,humi))
+            conn.execute("INSERT INTO data VALUES (datetime(),?,?)",(math.floor(temp*10)/10,math.floor(humi*10)/10))
             conn.commit()
             conn.close()
         except sqlite3.Error as e:
@@ -68,28 +71,53 @@ def openFan(b):
             GPIO.output(fanPin,GPIO.LOW)
             isfanopen = False
 
-while True:
-    humi,temp = 0,0
-    try:
-        humi,temp = Adafruit_DHT.read_retry(sensorType,sensorPin)
-    except ValueError as e:
-        print(e)
-        continue
-    except RuntimeError as e:
-        print(e)
-        continue
-    hour = time.localtime().tm_hour
-    print('hour=%d Temp=%.2f  Humidity=%.2f%%'%(hour,humi,temp))
-    #当温度高于30度或者湿度大于80%打开风扇，当湿度低于55打开加湿，70停止加湿
-    #每天6点和18点后打开风扇1小时
-    if temp>30 or hour==6 or hour==16:
-        openFan(True)
-    else:
-        openFan(False)
-    #风扇打开时停止加湿
-    if humi>70 or isfanopen:
-        openJs(False)
-    elif humi<55 and humi>5:
-        openJs(True)
-    writeSql60(temp,humi)
-    time.sleep(1)
+def MainLoop():
+    global cmd
+    while True:
+        humi,temp = 0,0
+        try:
+            humi,temp = Adafruit_DHT.read_retry(sensorType,sensorPin)
+            hour = time.localtime().tm_hour
+            print('hour=%d Temp=%.2f  Humidity=%.2f%%'%(hour,humi,temp))
+            #当温度高于30度或者湿度大于80%打开风扇，当湿度低于55打开加湿，70停止加湿
+            #每天6点和18点后打开风扇1小时
+            if temp>30 or hour==6 or hour==16:
+                openFan(True)
+            else:
+                openFan(False)
+            #风扇打开时停止加湿
+            if humi>70 or isfanopen:
+                openJs(False)
+            elif humi<55 and humi>5:
+                openJs(True)
+            writeSql60(temp,humi)
+            while not cmd.empty() :
+                print(cmd.get())
+            time.sleep(1)
+        except ValueError as e:
+            print(e)
+            continue
+        except RuntimeError as e:
+            print(e)
+            continue
+        except Exception as e:
+            print(e)
+            continue
+
+def B():
+    global cmd
+    while True:
+        cmd.put('hello B')
+        time.sleep(5)
+
+Main = Process(target=MainLoop)
+B = Process(target=B)
+B.start()
+Main.start()
+
+app = Flask(__name__)
+@app.route('/')
+def hello_world():
+    global cmd
+    cmd.put('do it')
+    return 'Hello, World!'
