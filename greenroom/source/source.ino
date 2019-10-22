@@ -20,7 +20,7 @@
 #define MOTOR_A_PIN1 26
 #define MOTOR_B_PIN0 24 
 #define MOTOR_B_PIN1 22  
-#define DHT22_PIN0 11
+#define DHT22_PIN0 14
 #define DHT22_PIN1 15
 #define JSOPEN_PIN 30
 #define OUTDOOR_LIGH_PIN A1
@@ -280,14 +280,14 @@ void setup(){
 void openfan(bool b){
 	if(b){
 		if(!isfanopen){
-		  digitalWrite(MOTOR_A_PIN0,HIGH);
-     	digitalWrite(MOTOR_A_PIN1,LOW);
+		    digitalWrite(MOTOR_A_PIN0,HIGH);
+     	    digitalWrite(MOTOR_A_PIN1,LOW);
 			isfanopen = true;
 		}
 	}else{
 		if(isfanopen){
-		  digitalWrite(MOTOR_A_PIN0,LOW);
-      digitalWrite(MOTOR_A_PIN1,LOW);
+		    digitalWrite(MOTOR_A_PIN0,LOW);
+		    digitalWrite(MOTOR_A_PIN1,LOW);
 			isfanopen = false;
 		}
 	}  
@@ -297,48 +297,38 @@ void openfan(bool b){
 void openjs(bool b){
 	if(b){
 		if(!isjsopen){
-		  digitalWrite(MOTOR_B_PIN0,HIGH);
-     	digitalWrite(MOTOR_B_PIN1,LOW);
 			isjsopen = true;
-      digitalWrite(JSOPEN_PIN,HIGH);
-      delay(200);
-      digitalWrite(JSOPEN_PIN,LOW);
-      delay(200);
-      digitalWrite(JSOPEN_PIN,HIGH);
+		    digitalWrite(MOTOR_B_PIN0,HIGH);
+     	    digitalWrite(MOTOR_B_PIN1,LOW);
 		}
 	}else{
 		if(isjsopen){
-		  digitalWrite(MOTOR_B_PIN0,LOW);
-      digitalWrite(MOTOR_B_PIN1,LOW);
+		    digitalWrite(MOTOR_B_PIN0,LOW);
+		    digitalWrite(MOTOR_B_PIN1,LOW);
 			isjsopen = false;
 		}
 	} 
 }
-bool prevforce = false;
-//当温度高于30度或者湿度大于80%打开风扇，当湿度低于55打开加湿，70停止加湿
-//每天6点和18点后打开风扇1小时
+
+//早上6点到晚上6点，湿度低于60打开加湿器，80停止加湿
+//早上6点到晚上6点，温度高于28打开风扇，低于关闭风扇
 void evalve(){
 	float ot = hlogs[ilogs].temp0;
-  float oh = hlogs[ilogs].humi0;
+	float oh = hlogs[ilogs].humi0;
 	int hour = now.hour();
-  //湿度控制在55%~70%
+
   if(forcejs>0){
     openjs(true);
-    prevforce = true;
   }else{
-	if(isfanopen){ //如果在通风则关闭加湿
-	  openjs(false);
-  	}else {
-		if(prevforce)
+	if(hour>=6 && hour<=18){ 
+		if(oh>80){
 			openjs(false);
-
-		if(oh>70){
-			openjs(false);
-		}else if(oh<55 && oh>5){
+		}else if(oh<60 && oh>5){
 			openjs(true);
 		}
-		prevforce = false;
-  	}
+	}else{//夜晚不进行调节
+		openjs(false);
+	}
   }
   if(forcejs>0){
     forcejs--;
@@ -347,16 +337,20 @@ void evalve(){
   if(forcefan>0){
     openfan(true);
   }else{
-    if(ot>=30 || oh>=80 || hour==6 || hour==18){
-      openfan(true);
-    }else{
-      openfan(false);
-    }
+	if(hour>=6 && hour<=18){ 
+		if(ot>=28){
+		openfan(true);
+		}else{
+		openfan(false);
+		}
+	}else{//夜晚不进行调节
+		openfan(false);
+	}
   }
   if(forcefan>0)forcefan--;
 	//手动控制风扇
 	int openPressA = digitalRead(Open_A_Pin);
-  int closePressA = digitalRead(Close_A_Pin);
+	int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 打开风扇10分钟
 	if(openPressA==HIGH && closePressA==LOW){
 		if(isreleaseA)
@@ -379,16 +373,16 @@ void evalve(){
 	}
 	//手动控制湿度
 	int openPressB = digitalRead(Open_B_Pin);
-  int closePressB = digitalRead(Close_B_Pin);
+	int closePressB = digitalRead(Close_B_Pin);
 	//openPressA 打开加湿器10分钟
 	if(openPressB==HIGH && closePressB==LOW){
 		if(isreleaseB)
-			forcejs += 10*60*100L; //增加10分钟
+			forcejs += 2*60*100L; //增加2分钟
 		isreleaseB = false;
 		EnableLCDLigh();
 	}else if(openPressB==LOW && closePressB==HIGH){
 		if(isreleaseB){
-			forcejs -= 10*60*100L; //减少10分钟
+			forcejs -= 2*60*100L; //减少2分钟
 			if(forcejs<0){
         forcejs = 0;
       }

@@ -17,7 +17,7 @@ from threading import Thread
 temp = 0
 humi = 0
 sensorType = 22 #dht22温湿度传感器
-sensorPin = 18 #dht22读取pin
+sensorPin = 10 #dht22读取pin
 jspowerPin = 11 #加速器电源pin
 jsswitchPin = 13 #加湿器开关
 fanPin = 12 #风扇pin
