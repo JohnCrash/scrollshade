@@ -65,11 +65,19 @@ byte lastHour = 255;
 byte lastMinute = 255;
 byte secs = 0;
 
+struct opstruct{
+	char sec;
+	char op;
+};
+
 struct hourlog{
-	float temp0;
-	float humi0;
-	float temp1;
-	float light;
+	char  minute;
+	short temp0;
+	short humi0;
+	char  oplen;
+	opstruct ops[4];
+//	float temp1;
+//	float light;
 };
 char ilogs = 0;
 hourlog hlogs[60];
@@ -89,7 +97,7 @@ DateTime now;
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
-	lcdlighs = 1000;
+	lcdlighs = 100*60*5; //5分钟
 }
 
 void LCDLighCyle(){
@@ -103,7 +111,8 @@ void switchIndoorOutdoor(){
 	int state = digitalRead(SWITCH_INDOOR_OUTDOOR_PIN);
 	if(state==LOW && lastSwitchIndoorOurdoor==HIGH){
 		lastSwitchIndoorOurdoor = LOW;
-		bIndoor = !bIndoor;
+		//关闭内外设置
+		//bIndoor = !bIndoor;
 		EnableLCDLigh();
 	}else if(state==HIGH&&lastSwitchIndoorOurdoor==LOW){
 		lastSwitchIndoorOurdoor = HIGH;
@@ -124,28 +133,61 @@ String lowInt2(int v){
 }
 
 extern int mode;
+#define FANON 1
+#define FANOFF 2
+#define JSON 3
+#define JSOFF 4
+void oplog(byte code){
+	hourlog* plogs = &hlogs[ilogs];
+	if(plogs->oplen<3){
+		DateTime now= rtc.now();
+		plogs->ops[plogs->oplen].sec = now.second();
+		plogs->ops[plogs->oplen].op = code;
+		plogs->oplen++;
+	}
+	//丢弃
+}
+
+char* opCode2Str(byte code){
+	switch(code){
+		case FANON:return "FANON";
+		case FANOFF:return "FANOFF";
+		case JSON:return "JSON";
+		case JSOFF:return "JSOFF";
+	}
+	return "";
+}
+
+String oplogs(opstruct ops[4],byte len){
+	String result;
+	for(int i = 0;i<len;i++){
+		result += (String("-")+String(ops[i].sec,1)+"S"+opCode2Str(ops[i].op));
+	}
+	return result;
+}
 //将一个小时的温度与湿度数据保存的sd
 void writeHourlog(){
-	DateTime now = rtc.now();
 	if(now.minute()!=lastMinute){
 		lastMinute = now.minute();
 		
-		if(now.hour()!=lastHour && ilogs){
+		if(now.hour()!=lastHour && ilogs){  
 			String filename =  (now.year())+lowInt2(now.month())+
 								lowInt2(now.day())+
 								lowInt2(now.hour())+".log";
 			File f = SD.open(filename,FILE_WRITE);
 			if(f){
 				for(int i=0;i<=ilogs;i++){
-					f.println(String(hlogs[i].temp0,1)+"C"+
-								String(hlogs[i].humi0,1)+"%"+
-								String(hlogs[i].temp1,1)+"C"+
-								String(hlogs[i].light,1)+"H");
+					f.println(String(hlogs[i].minute)+"M"+
+						      String(hlogs[i].temp0/10.0,1)+"C"+
+							  String(hlogs[i].humi0/10.0,1)+"%"+oplogs(hlogs[i].ops,hlogs[i].oplen));
 				}
 				f.close();
 			}
 			lastHour = now.hour();
 			ilogs = 0;
+			for(int i=0;i<60;i++){
+				hlogs[i].oplen = 0;
+			}
 		}else{
 			ilogs++;
 		}
@@ -176,7 +218,6 @@ String getDHTError(int chk){
 //文件名命名为日期YYMMDDHH.log
 void temperature_storage_cycle(){
   int chk0 = dht0.read22(DHT22_PIN0);
-//  int chk1 = dht1.read22(DHT22_PIN1);
   now = rtc.now();
   if(mode==0){
 	  
@@ -192,8 +233,9 @@ void temperature_storage_cycle(){
   }
   if(chk0==DHTLIB_OK){ //室内温度
 	//	dht0.temperature -= 3; //修正下温度，好像总是高3度
-	  hlogs[ilogs].temp0 = dht0.temperature;
-	  hlogs[ilogs].humi0 = dht0.humidity;
+	  hlogs[ilogs].minute = now.minute();
+	  hlogs[ilogs].temp0 = dht0.temperature*10;
+	  hlogs[ilogs].humi0 = dht0.humidity*10;
 	  Serial.println(String(dht0.temperature,DEC)+","+String(dht0.humidity,DEC));
 	  //显示温度00C 00% 00C 00%
 	  if(bIndoor && mode==0){
@@ -209,6 +251,7 @@ void temperature_storage_cycle(){
   int lighv = 1024-analogRead(OUTDOOR_LIGH_PIN);
   int tempv = analogRead(OUTDOOR_TEMP_PIN);
   
+  /*
   if(mode==0){
     float r = 10*tempv/(1024-tempv); //10k
 	  float temp = calcTemp(r) - 15; //修正
@@ -218,16 +261,7 @@ void temperature_storage_cycle(){
 				lcd.print(String(temp,0)+"C"+String(lighv)+"H ");
 		}
   }
-//  if(chk1==DHTLIB_OK){ //室外温度
-//	  hlogs[ilogs].temp1 = dht1.temperature;
-//	  hlogs[ilogs].humi1 = dht1.humidity;
-//	  if(!bIndoor && mode==0)
-//		lcd.print("od "+String(dht1.temperature,0)+"C "+String(dht1.humidity,0)+"% "+(A_auto_state?"1A":" ")+(B_auto_state?"2A":" ")+"    ");
-//  }else{
-//	  hlogs[ilogs].temp1 = 0;
-//	  hlogs[ilogs].humi1 = 0;
-//	  if(!bIndoor &&mode==0)lcd.print("2."+getDHTError(chk1));	  
-//  }
+  */
   //每小时存入一次温度数据到sd卡中
   writeHourlog();
 }
@@ -271,38 +305,27 @@ void setup(){
   //初始化SD card
   SDInit();
   //从外部芯片取出当前时间
-  DateTime now = rtc.now();
-  lastHour = now.day();
+  now = rtc.now();
+  lastHour = now.hour();
   lastMinute = now.minute();  
 }
 
-//打开或者关闭风扇
-void openfan(bool b){
-	if(b){
-		if(!isfanopen){
-		    digitalWrite(MOTOR_A_PIN0,HIGH);
-     	    digitalWrite(MOTOR_A_PIN1,LOW);
-			isfanopen = true;
-		}
-	}else{
-		if(isfanopen){
-		    digitalWrite(MOTOR_A_PIN0,LOW);
-		    digitalWrite(MOTOR_A_PIN1,LOW);
-			isfanopen = false;
-		}
-	}  
-}
-
+int opjsminuts = 0;
 //打开或者关闭加湿
 void openjs(bool b){
 	if(b){
-		if(!isjsopen){
-			isjsopen = true;
-		    digitalWrite(MOTOR_B_PIN0,HIGH);
-     	    digitalWrite(MOTOR_B_PIN1,LOW);
+		if(!isjsopen && !isfanopen){ //风扇打开时不能打开加速器
+			if(opjsminuts!=(now.minute()+now.hour()*60)){//不能快速打开或这关闭加速器最小周期一分钟（这是一种保护措施）
+				isjsopen = true;
+				oplog(JSON);
+				digitalWrite(MOTOR_B_PIN0,HIGH);
+				digitalWrite(MOTOR_B_PIN1,LOW);
+				opjsminuts = now.minute()+now.hour()*60;
+			}
 		}
 	}else{
 		if(isjsopen){
+			oplog(JSOFF);
 		    digitalWrite(MOTOR_B_PIN0,LOW);
 		    digitalWrite(MOTOR_B_PIN1,LOW);
 			isjsopen = false;
@@ -310,20 +333,42 @@ void openjs(bool b){
 	} 
 }
 
-//早上6点到晚上6点，湿度低于60打开加湿器，80停止加湿
+//打开或者关闭风扇
+//打开风扇期间关闭加速器
+void openfan(bool b){
+	if(b){
+		if(!isfanopen){
+			oplog(FANON);
+		    digitalWrite(MOTOR_A_PIN0,HIGH);
+     	    digitalWrite(MOTOR_A_PIN1,LOW);
+			isfanopen = true;
+		}
+		openjs(false);
+	}else{
+		if(isfanopen){
+			oplog(FANOFF);
+		    digitalWrite(MOTOR_A_PIN0,LOW);
+		    digitalWrite(MOTOR_A_PIN1,LOW);
+			isfanopen = false;
+		}
+	}  
+}
+
+//早上6点到晚上6点，湿度低于65打开加湿器，85停止加湿
 //早上6点到晚上6点，温度高于28打开风扇，低于关闭风扇
 void evalve(){
-	float ot = hlogs[ilogs].temp0;
-	float oh = hlogs[ilogs].humi0;
+	float ot = hlogs[ilogs].temp0/10.0;
+	float oh = hlogs[ilogs].humi0/10.0;
 	int hour = now.hour();
+	int minuts = now.minute();
 
   if(forcejs>0){
     openjs(true);
   }else{
 	if(hour>=6 && hour<=18){ 
-		if(oh>80){
+		if(oh>85){
 			openjs(false);
-		}else if(oh<60 && oh>5){
+		}else if(oh<65 && oh>5){
 			openjs(true);
 		}
 	}else{//夜晚不进行调节
@@ -334,14 +379,27 @@ void evalve(){
     forcejs--;
   }
   //风扇控制
+  //1降温，2通风
   if(forcefan>0){
     openfan(true);
   }else{
-	if(hour>=6 && hour<=18){ 
-		if(ot>=28){
-		openfan(true);
+	if(hour>=6 && hour<=18){
+		//早中晚各通风5分钟
+		if((hour==6||hour==12||hour==18)&& minuts==0 && forcefan<=0){
+			forcefan+= 5*60*100L; //增加5分钟
 		}else{
-		openfan(false);
+			if(ot>=28){
+				//降温程序，开风扇5分钟，开加湿器1分钟，周期进行直到温度达到要求
+				if(minuts % 6 == 1){
+					openfan(false);
+					openjs(true);
+				}else{
+					openjs(false);
+					openfan(true);
+				}
+			}else{
+				openfan(false);
+			}
 		}
 	}else{//夜晚不进行调节
 		openfan(false);
@@ -351,15 +409,15 @@ void evalve(){
 	//手动控制风扇
 	int openPressA = digitalRead(Open_A_Pin);
 	int closePressA = digitalRead(Close_A_Pin);
-	//openPressA 打开风扇10分钟
+	//openPressA 打开风扇5分钟
 	if(openPressA==HIGH && closePressA==LOW){
 		if(isreleaseA)
-			forcefan += 10*60*100L; //增加10分钟
+			forcefan += 5*60*100L; //增加5分钟
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
 		if(isreleaseA){
-			forcefan -= 10*60*100L; //减少10分钟
+			forcefan -= 5*60*100L; //减少5分钟
 			if(forcefan<0)forcefan = 0;
 		}
 		isreleaseA = false;
@@ -374,7 +432,7 @@ void evalve(){
 	//手动控制湿度
 	int openPressB = digitalRead(Open_B_Pin);
 	int closePressB = digitalRead(Close_B_Pin);
-	//openPressA 打开加湿器10分钟
+	//openPressA 打开加湿器2分钟
 	if(openPressB==HIGH && closePressB==LOW){
 		if(isreleaseB)
 			forcejs += 2*60*100L; //增加2分钟
@@ -548,24 +606,12 @@ void setDateTime_cycle(){
 
 void loop(){
 	//正常的显示控制模式
-  if(mode==0){
-		/*
-	  manual_control_scroll(  EndStop_A0_Pin,EndStop_A1_Pin,
-				  Open_A_Pin,Close_A_Pin,
-				  MOTOR_A_PIN0,MOTOR_A_PIN1,
-				  &A_auto_state,&A_switching_state);
-
-	  manual_control_scroll(  EndStop_B0_Pin,EndStop_B1_Pin,
-				  Open_B_Pin,Close_B_Pin,
-				  MOTOR_B_PIN0,MOTOR_B_PIN1,
-				  &B_auto_state,&B_switching_state);
-		*/	  
-		evalve();
+  if(mode==0){ 
+	  evalve();
 	  switchIndoorOutdoor();
   }
 	//设置时间以及时间显示
   setDateTime_cycle();
-	//LCD在按键后亮10秒
   LCDLighCyle();
   if(secs==100){
 		//温度数据存储
