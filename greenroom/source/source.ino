@@ -161,7 +161,7 @@ char* opCode2Str(byte code){
 String oplogs(opstruct ops[4],byte len){
 	String result;
 	for(int i = 0;i<len;i++){
-		result += (String("-")+String(ops[i].sec,1)+"S"+opCode2Str(ops[i].op));
+		result += (String("-")+String(ops[i].sec,DEC)+opCode2Str(ops[i].op));
 	}
 	return result;
 }
@@ -171,13 +171,13 @@ void writeHourlog(){
 		lastMinute = now.minute();
 		
 		if(now.hour()!=lastHour && ilogs){  
-			String filename =  (now.year())+lowInt2(now.month())+
+			String filename =  lowInt2(now.year())+lowInt2(now.month())+
 								lowInt2(now.day())+
 								lowInt2(now.hour())+".log";
 			File f = SD.open(filename,FILE_WRITE);
 			if(f){
 				for(int i=0;i<=ilogs;i++){
-					f.println(String(hlogs[i].minute)+"M"+
+					f.println(String(hlogs[i].minute,DEC)+"M"+
 						      String(hlogs[i].temp0/10.0,1)+"C"+
 							  String(hlogs[i].humi0/10.0,1)+"%"+oplogs(hlogs[i].ops,hlogs[i].oplen));
 				}
@@ -307,7 +307,7 @@ void setup(){
   //从外部芯片取出当前时间
   now = rtc.now();
   lastHour = now.hour();
-  lastMinute = now.minute();  
+  lastMinute = now.minute();
 }
 
 int opjsminuts = 0;
@@ -388,14 +388,17 @@ void evalve(){
 		if((hour==6||hour==12||hour==18)&& minuts==0 && forcefan<=0){
 			forcefan+= 5*60*100L; //增加5分钟
 		}else{
-			if(ot>=28){
-				//降温程序，开风扇5分钟，开加湿器1分钟，周期进行直到温度达到要求
-				if(minuts % 6 == 1){
+			if(ot>=32){
+				//降温程序，开风扇2分钟，开加湿器1分钟，停止2分钟。周期进行直到温度达到要求
+				if(minuts % 5 == 1){
 					openfan(false);
 					openjs(true);
+				}else if(minuts % 5 == 2 || minuts % 5 == 3){
+					openjs(false);
+					openfan(false);
 				}else{
 					openjs(false);
-					openfan(true);
+					openfan(true);					
 				}
 			}else{
 				openfan(false);
