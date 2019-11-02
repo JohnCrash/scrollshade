@@ -352,13 +352,13 @@ void evalve(){
 					if(minuts==1 && now.second()==1)
 						openjs2(30);
 				}else if(ot>=20&&ot<25){
-					if(minuts==1 && now.second()==1)
+					if((minuts%30==0)&& now.second()==1)
 						openjs2(60);
 				}else if(ot>=25 && ot<30){
-					if((minuts==1||minuts==30)&& now.second()==1)
+					if((minuts%15==0)&& now.second()==1)
 						openjs2(60);
 				}else if(ot>=30){
-					if((minuts==1||minuts==15||minuts==30||minuts==45)&& now.second()==1)
+					if((minuts%5==0)&& now.second()==1)
 						openjs2(60);
 				}
 			}else{//夜晚不进行调节
