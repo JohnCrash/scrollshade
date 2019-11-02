@@ -1,5 +1,3 @@
-#include <LiquidCrystal_I2C.h>
-
 #include <SPI.h>
 #include <SD.h>
 #include <LCD.h>
@@ -52,6 +50,7 @@ bool A_switching_state = false; //正在切换状态中
 bool B_auto_state = true; //初始状态是开启
 bool B_switching_state = false;
 bool bIndoor = true; //显示室内
+bool isSensorFail = false; //湿度失效
 //温度传感器0
 dht dht0;
 byte secs = 0;
@@ -76,6 +75,9 @@ bool isjsopen = false;
 bool isreleaseA = true;
 bool isreleaseB = true;
 DateTime now;
+bool iscoolprogram = false; //进入冷却程序
+int opjsminuts = 0;
+uint32_t openjsts = 0; //加湿器开始时间
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
@@ -88,9 +90,12 @@ void LCDLighCyle(){
 	}
 }
 
+void(* resetFunc) (void) = 0; //declare reset function @ address 0
+
 //切换内外温度显示
 void switchIndoorOutdoor(){
 	int state = digitalRead(SWITCH_INDOOR_OUTDOOR_PIN);
+	
 	if(state==LOW && lastSwitchIndoorOurdoor==HIGH){
 		lastSwitchIndoorOurdoor = LOW;
 		//关闭内外设置
@@ -98,6 +103,12 @@ void switchIndoorOutdoor(){
 		EnableLCDLigh();
 	}else if(state==HIGH&&lastSwitchIndoorOurdoor==LOW){
 		lastSwitchIndoorOurdoor = HIGH;
+	}
+	if(state==LOW){
+		if(digitalRead(SET_DATETIME_PIN)==LOW){
+			//重启
+			resetFunc();
+		}
 	}
 }
 
@@ -181,10 +192,13 @@ void temperature_storage_cycle(){
 	//Serial.println(String(dht0.temperature,DEC)+","+String(dht0.humidity,DEC));
 	//显示温度00C 00% 00C 00%
 	if(bIndoor && mode==0){
-		lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+"% ");
+		String se = isSensorFail?"ERROR":"     ";
+		lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+String("% ")+se);
 	}		
   }else{
 	  if(mode==0)lcd.print("1."+getDHTError(chk0));
+	  dht0.temperature = 0;
+	  dht0.humidity = 0;
   }
   //读取户外的温度与光照强度
   //int lighv = 1024-analogRead(OUTDOOR_LIGH_PIN);
@@ -236,17 +250,17 @@ void setup(){
   //初始化lcd
   lcd.begin(16,2);
   lcd.setBacklightPin(3,POSITIVE);
-  EnableLCDLigh();
+  //EnableLCDLigh();
   //设置串口用于调试和命令传送
   Serial.begin(115200);
   //初始化SD card
   SDInit();
   //从外部芯片取出当前时间
   now = rtc.now();
+  openjsts = now.unixtime();
   log('START');
 }
 
-int opjsminuts = 0;
 //打开或者关闭加湿
 void openjs(bool b){
 	if(b){
@@ -257,16 +271,30 @@ void openjs(bool b){
 				digitalWrite(MOTOR_B_PIN0,HIGH);
 				digitalWrite(MOTOR_B_PIN1,LOW);
 				opjsminuts = now.minute()+now.hour()*60;
+				openjsts = now.unixtime();
 			}
 		}
 	}else{
+		//当温度大于20度的时候每次最少打开1分钟，当温度大于25度的时候每次至少打开2分钟
 		if(isjsopen){
-			logop(String("JSOFF"));
-		    digitalWrite(MOTOR_B_PIN0,LOW);
-		    digitalWrite(MOTOR_B_PIN1,LOW);
-			isjsopen = false;
+			float ot = dht0.temperature;
+			uint32_t dt = now.unixtime() - openjsts;
+			if( iscoolprogram||ot<20 || (ot>=20 && ot<25 && dt>60) || (ot>=25 && dt>120)){
+				logop(String("JSOFF ")+dt+"S ");
+				digitalWrite(MOTOR_B_PIN0,LOW);
+				digitalWrite(MOTOR_B_PIN1,LOW);
+				isjsopen = false;
+				openjsts = now.unixtime();
+			}
 		}
 	} 
+}
+
+//加湿多少秒
+void openjs2(int s){
+	if(forcejs==0){
+		forcejs = s*100L;
+	}
 }
 
 //打开或者关闭风扇
@@ -298,21 +326,64 @@ void evalve(){
 	int hour = now.hour();
 	int minuts = now.minute();
 
-	if(forcejs>0){
-		openjs(true);
-	}else{
-		if(hour>=6 && hour<=18){ 
-			if(oh>85){
+	if(!iscoolprogram && !isSensorFail){
+		if(forcejs>0){
+			openjs(true);
+		}else{
+			if(hour>=6 && hour<=18){ 
+				if(oh>85){
+					openjs(false);
+				}else if(oh<65 && oh>5){
+					openjs(true);
+				}
+			}else{//夜晚不进行调节
 				openjs(false);
-			}else if(oh<65 && oh>5){
-				openjs(true);
 			}
-		}else{//夜晚不进行调节
-			openjs(false);
 		}
+	}else if(isSensorFail){
+		//湿度失效控制
+		if(forcejs>0){
+			openjs(true);
+		}else{
+			if(hour>=6 && hour<=18){
+				//根据温度进行控制，温度在20度下1小时加湿30s
+				//温度在20-25度1小时加湿60s大于25度半小时加湿1分钟
+				if(ot<20){
+					if(minuts==1 && now.second()==1)
+						openjs2(30);
+				}else if(ot>=20&&ot<25){
+					if(minuts==1 && now.second()==1)
+						openjs2(60);
+				}else if(ot>=25 && ot<30){
+					if((minuts==1||minuts==30)&& now.second()==1)
+						openjs2(60);
+				}else if(ot>=30){
+					if((minuts==1||minuts==15||minuts==30||minuts==45)&& now.second()==1)
+						openjs2(60);
+				}
+			}else{//夜晚不进行调节
+				openjs(false);
+			}
+		}		
 	}
 	if(forcejs>0){
 		forcejs--;
+		if(forcejs==0){
+			openjs(false);
+		}
+	}else if(forcejs<0){
+		forcejs = 0;
+	}
+	//这里判断湿度传感器失效，如果加湿超过20秒湿度值还小于70,或者停止加湿1小时湿度仍然保持在80以上
+	//湿度失效后只能通过手动重启来重置湿度传感器
+	if(!isSensorFail){
+		uint32_t dt = now.unixtime() - openjsts;
+		if( (isjsopen && dt>=20&& oh<70) || (!isjsopen && dt>=3600 && oh>80)){
+			isSensorFail = true;
+			log("humidity sensor failed!");
+			Serial.println("humidity sensor failed!");
+			openjs(false);
+		}
 	}
 	//风扇控制
 	//1降温，2通风
@@ -322,10 +393,15 @@ void evalve(){
 		if(hour>=6 && hour<=18){
 			//早中晚各通风5分钟
 			if((hour==6||hour==12||hour==18)&& minuts==0 && forcefan<=0){
-				forcefan+= 5*60*100L; //增加5分钟
+				forcefan = 5*60*100L; //增加5分钟
+				forcejs = (5+2)*60*100L; //这里在通风结束后开2分钟加湿器
 			}else{
 				if(ot>=32){
 					//降温程序，开风扇2分钟，开加湿器1分钟，停止2分钟。周期进行直到温度达到要求
+					if(!iscoolprogram)
+						logop(String("COOLING"));
+					iscoolprogram = true;
+					
 					if(minuts % 5 == 1){
 						openfan(false);
 						openjs(true);
@@ -337,10 +413,14 @@ void evalve(){
 						openfan(true);					
 					}
 				}else{
+					if(iscoolprogram)
+						logop(String("COOLING STOP"));
+					iscoolprogram = false;
 					openfan(false);
 				}
 			}
 		}else{//夜晚不进行调节
+			iscoolprogram = false;
 			openfan(false);
 		}
 	}
