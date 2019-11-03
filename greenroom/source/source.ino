@@ -31,6 +31,13 @@
 #define OPENCYCLE_T2 (30*100L) //下排开启时间
 #define OPENFAN_T	 (2*60*100L)	//打开风扇的时间
 #define CLOSEFAN_T (2*60*100L)	//关闭风扇的时间
+
+const int OUT_PIN = A3;
+const int IN_PIN = A4;
+const float IN_STRAY_CAP_TO_GND = 24.48*1.14;
+const float IN_CAP_TO_GND  = IN_STRAY_CAP_TO_GND;
+const int MAX_ADC_VALUE = 1023;
+
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -90,6 +97,26 @@ void LCDLighCyle(){
 	}
 }
 
+float read_hs1100(){
+	float capacitance = 0;
+    for(int i=0;i<10;i++){
+      pinMode(IN_PIN, INPUT);
+      digitalWrite(OUT_PIN, HIGH);
+      int val = analogRead(IN_PIN);
+      digitalWrite(OUT_PIN, LOW);
+  
+      if (val < 1000)
+      {
+        pinMode(IN_PIN, OUTPUT);
+        capacitance += (float)val * IN_CAP_TO_GND / (float)(MAX_ADC_VALUE - val);
+      }
+    }
+    Serial.print(F("Capacitance Value = "));
+    Serial.print(capacitance/10.0, 3);
+    Serial.print(F(" pF ("));
+    Serial.print(capacitance*2.78/10.0-455.56);
+    Serial.println(F("%) "));
+}
 void(* resetFunc) (void) = 0; //declare reset function @ address 0
 
 //切换内外温度显示
@@ -169,10 +196,11 @@ String getDHTError(int chk){
   }	
 }
 
+byte read11error = 0;
 //将每分钟的温度，湿度，光照，以一小时为周期存入SD卡中
 //文件名命名为日期YYMMDDHH.log
 void temperature_storage_cycle(){
-  int chk0 = dht0.read22(DHT22_PIN0);
+  int chk0 = dht0.read11(DHT22_PIN0);
   now = rtc.now();
   if(mode==0){
 	//显示时钟00:00:00-
@@ -194,11 +222,15 @@ void temperature_storage_cycle(){
 	if(bIndoor && mode==0){
 		String se = isSensorFail?"ERROR":"     ";
 		lcd.print(String(dht0.temperature,0)+"C"+String(dht0.humidity,0)+String("% ")+se);
-	}		
+	}
+	read11error = 0;
   }else{
-	  if(mode==0)lcd.print("1."+getDHTError(chk0));
-	  dht0.temperature = 0;
-	  dht0.humidity = 0;
+	  read11error++;
+	  if(read11error>10){
+		if(mode==0)lcd.print("1."+getDHTError(chk0));
+		dht0.temperature = 0;
+		dht0.humidity = 0;
+	  }
   }
   //读取户外的温度与光照强度
   //int lighv = 1024-analogRead(OUTDOOR_LIGH_PIN);
