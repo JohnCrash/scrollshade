@@ -54,7 +54,7 @@ bool isSensorFail = true; //湿度失效
 bool isRoomEnabled = false; 
 //温度传感器0
 dht dht0;
-byte secs = 0;
+int secs = 0;
 //dht dht1;
 
 //lcd显示
@@ -306,6 +306,7 @@ void openjs(bool b){
 		if(!isjsopen && !isfanopen){ //风扇打开时不能打开加速器
 			if(opjsminuts!=(now.minute()+now.hour()*60)){//不能快速打开或这关闭加速器最小周期一分钟（这是一种保护措施）
 				isjsopen = true;
+				Serial.println("OPEN JS ON");
 				logop(String("JSON"));
 				digitalWrite(MOTOR_B_PIN0,HIGH);
 				digitalWrite(MOTOR_B_PIN1,LOW);
@@ -319,6 +320,7 @@ void openjs(bool b){
 			float ot = dht0.temperature;
 			uint32_t dt = now.unixtime() - openjsts;
 			if( iscoolprogram||ot<20 || (ot>=20 && ot<25 && dt>60) || (ot>=25 && dt>120)){
+				Serial.println("OPEN JS OFF");
 				logop(String("JSOFF ")+dt+"S ");
 				digitalWrite(MOTOR_B_PIN0,LOW);
 				digitalWrite(MOTOR_B_PIN1,LOW);
@@ -346,6 +348,7 @@ void openfan2(int s){
 void openfan(bool b){
 	if(b){
 		if(!isfanopen){
+			Serial.println("OPEN FAN ON");
 			logop(String("FANON"));
 		    digitalWrite(MOTOR_A_PIN0,HIGH);
      	    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -354,6 +357,7 @@ void openfan(bool b){
 		openjs(false);
 	}else{
 		if(isfanopen){
+			Serial.println("OPEN FAN OFF");
 			logop(String("FANOFF"));
 		    digitalWrite(MOTOR_A_PIN0,LOW);
 		    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -370,7 +374,7 @@ void evalve(){
 	int hour = now.hour();
 	int minuts = now.minute();
 
-	if(!iscoolprogram && !isSensorFail){
+	if(!isSensorFail){
 		if(forcejs>0){
 			openjs(true);
 		}else{
@@ -385,7 +389,7 @@ void evalve(){
 				openjs(false);
 			}
 		}
-	}else if(!iscoolprogram && isSensorFail){
+	}else if(isSensorFail){
 		//湿度失效控制
 		if(forcejs>0){
 			openjs(true);
@@ -482,11 +486,14 @@ void evalve(){
 	int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 打开风扇5分钟
 	if(openPressA==HIGH && closePressA==LOW){
-		if(isreleaseA)
+		Serial.println("FORCE FAN +");
+		if(isreleaseA){
 			forcefan += 5*60*10L; //增加5分钟
+		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
+		Serial.println("FORCE FAN -");
 		if(isreleaseA){
 			forcefan -= 5*60*10L; //减少5分钟
 			if(forcefan<0)forcefan = 0;
@@ -714,14 +721,13 @@ void loop(){
   setDateTime_cycle();
   LCDLighCyle();
   
-  if(secs==60*100){
+  if(secs==60*10){
 	//温度数据存储
 	temperature_storage_cycle();
 	secs = 0;
   }else{
 	  secs++;
   }
-
   //每秒循环10次
   accdt +=(100-(millis()-t));
 
