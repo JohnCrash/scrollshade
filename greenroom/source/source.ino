@@ -306,7 +306,6 @@ void openjs(bool b){
 		if(!isjsopen && !isfanopen){ //风扇打开时不能打开加速器
 			if(opjsminuts!=(now.minute()+now.hour()*60)){//不能快速打开或这关闭加速器最小周期一分钟（这是一种保护措施）
 				isjsopen = true;
-				Serial.println("OPEN JS ON");
 				logop(String("JSON"));
 				digitalWrite(MOTOR_B_PIN0,HIGH);
 				digitalWrite(MOTOR_B_PIN1,LOW);
@@ -315,18 +314,12 @@ void openjs(bool b){
 			}
 		}
 	}else{
-		//当温度大于20度的时候每次最少打开1分钟，当温度大于25度的时候每次至少打开2分钟
 		if(isjsopen){
-			float ot = dht0.temperature;
-			uint32_t dt = now.unixtime() - openjsts;
-			if( iscoolprogram||ot<20 || (ot>=20 && ot<25 && dt>60) || (ot>=25 && dt>120)){
-				Serial.println("OPEN JS OFF");
-				logop(String("JSOFF ")+dt+"S ");
-				digitalWrite(MOTOR_B_PIN0,LOW);
-				digitalWrite(MOTOR_B_PIN1,LOW);
-				isjsopen = false;
-				openjsts = now.unixtime();
-			}
+			logop(String("JSOFF "));
+			digitalWrite(MOTOR_B_PIN0,LOW);
+			digitalWrite(MOTOR_B_PIN1,LOW);
+			isjsopen = false;
+			openjsts = now.unixtime();
 		}
 	} 
 }
@@ -348,7 +341,6 @@ void openfan2(int s){
 void openfan(bool b){
 	if(b){
 		if(!isfanopen){
-			Serial.println("OPEN FAN ON");
 			logop(String("FANON"));
 		    digitalWrite(MOTOR_A_PIN0,HIGH);
      	    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -357,7 +349,6 @@ void openfan(bool b){
 		openjs(false);
 	}else{
 		if(isfanopen){
-			Serial.println("OPEN FAN OFF");
 			logop(String("FANOFF"));
 		    digitalWrite(MOTOR_A_PIN0,LOW);
 		    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -422,13 +413,15 @@ void evalve(){
 			}
 		}		
 	}
-	if(forcejs>0){
-		forcejs--;
-		if(forcejs==0){
-			openjs(false);
+	if(!isfanopen){ //当风扇打开后将抑制加速器倒计时，为了让加湿延迟的排风结束在开始。
+		if(forcejs>0){
+			forcejs--;
+			if(forcejs==0){
+				openjs(false);
+			}
+		}else if(forcejs<0){
+			forcejs = 0;
 		}
-	}else if(forcejs<0){
-		forcejs = 0;
 	}
 	//这里判断湿度传感器失效，如果加湿超过20秒湿度值还小于70,或者停止加湿1小时湿度仍然保持在80以上
 	//湿度失效后只能通过手动重启来重置湿度传感器
@@ -450,7 +443,6 @@ void evalve(){
 			//早中晚各通风5分钟
 			if((hour==6||hour==12||hour==18)&& minuts==0 && forcefan<=0){
 				forcefan = 5*60*10L; //增加5分钟
-				forcejs = (5+2)*60*10L; //这里在通风结束后开2分钟加湿器
 			}else{
 				if(ot>=32){
 					//降温程序，开风扇2分钟，开加湿器1分钟，停止2分钟。周期进行直到温度达到要求
@@ -486,14 +478,12 @@ void evalve(){
 	int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 打开风扇5分钟
 	if(openPressA==HIGH && closePressA==LOW){
-		Serial.println("FORCE FAN +");
 		if(isreleaseA){
 			forcefan += 5*60*10L; //增加5分钟
 		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
-		Serial.println("FORCE FAN -");
 		if(isreleaseA){
 			forcefan -= 5*60*10L; //减少5分钟
 			if(forcefan<0)forcefan = 0;
