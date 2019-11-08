@@ -105,7 +105,7 @@ void initSteper(){
 		digitalWrite(DIR_PIN,LOW);
 		for(int i = 0;i < 200;i++){
 			if(digitalRead(STOP_PIN)==LOW){
-				turnSteper(true,16);
+				turnSteper(true,10);
 				isGreenHouse = true;
 				return;
 			}
@@ -131,7 +131,7 @@ void switchJS(bool b){
 
 void EnableLCDLigh(){
 	lcd.setBacklight(HIGH);
-	lcdlighs = 100*60*5; //5分钟
+	lcdlighs = 10*60*5; //5分钟
 }
 
 void LCDLighCyle(){
@@ -306,6 +306,7 @@ void openjs(bool b){
 		if(!isjsopen && !isfanopen){ //风扇打开时不能打开加速器
 			if(opjsminuts!=(now.minute()+now.hour()*60)){//不能快速打开或这关闭加速器最小周期一分钟（这是一种保护措施）
 				isjsopen = true;
+				Serial.println("JS ON");
 				logop(String("JSON"));
 				digitalWrite(MOTOR_B_PIN0,HIGH);
 				digitalWrite(MOTOR_B_PIN1,LOW);
@@ -315,6 +316,7 @@ void openjs(bool b){
 		}
 	}else{
 		if(isjsopen){
+			Serial.println("JS OFF");
 			logop(String("JSOFF "));
 			digitalWrite(MOTOR_B_PIN0,LOW);
 			digitalWrite(MOTOR_B_PIN1,LOW);
@@ -341,6 +343,7 @@ void openfan2(int s){
 void openfan(bool b){
 	if(b){
 		if(!isfanopen){
+			Serial.println("FAN ON");
 			logop(String("FANON"));
 		    digitalWrite(MOTOR_A_PIN0,HIGH);
      	    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -349,6 +352,7 @@ void openfan(bool b){
 		openjs(false);
 	}else{
 		if(isfanopen){
+			Serial.println("FAN OFF");
 			logop(String("FANOFF"));
 		    digitalWrite(MOTOR_A_PIN0,LOW);
 		    digitalWrite(MOTOR_A_PIN1,LOW);
@@ -364,7 +368,7 @@ void evalve(){
 	float oh = dht0.humidity;
 	int hour = now.hour();
 	int minuts = now.minute();
-
+	int sec = now.second();
 	if(!isSensorFail){
 		if(forcejs>0){
 			openjs(true);
@@ -390,21 +394,21 @@ void evalve(){
 				//温度在20-25度1小时加湿60s大于25度半小时加湿1分钟
 				switchJS(true);
 				if(ot<20){
-					if(minuts==1 && now.second()==1)
-						openjs2(30);
+					if(minuts%60==0 && !sec)
+						openjs2(120); //占空比 120/60 = 2
 				}else if(ot>=20&&ot<25){
-					if((minuts%30==0)&& now.second()==1)
-						openjs2(60);
+					if((minuts%30==0)&& !sec)
+						openjs2(120); //4
 				}else if(ot>=25 && ot<30){
-					if((minuts%15==0)&& now.second()==1)
-						openjs2(60);
+					if((minuts%15==0)&& !sec)
+						openjs2(120); //8
 				}else if(ot>=30){
-					if((minuts%5==0)&& now.second()==1)
-						openjs2(60);
+					if((minuts%5==0)&& !sec)
+						openjs2(60); //12
 				}
 			}else if(isRoomEnabled){
 				switchJS(false);
-				if((minuts==1)&& now.second()==1){
+				if((minuts==1)&& !sec){
 					openjs2(5*60);
 				}
 			}else{//夜晚不进行调节
@@ -445,20 +449,10 @@ void evalve(){
 				forcefan = 5*60*10L; //增加5分钟
 			}else{
 				if(ot>=32){
-					//降温程序，开风扇2分钟，开加湿器1分钟，停止2分钟。周期进行直到温度达到要求
-					if(!iscoolprogram)
-						logop(String("COOLING"));
-					iscoolprogram = true;
-					
-					if(minuts % 5 == 1){
-						openfan(false);
-						openjs(true);
-					}else if(minuts % 5 == 2 || minuts % 5 == 3){
-						openjs(false);
-						openfan(false);
-					}else{
-						openjs(false);
-						openfan(true);					
+					//降温程序
+					//因为ot>30的时候温度是5分钟1分钟
+					if(minuts%5==3 && !sec){
+						forcefan = 60*10L; //风扇1分钟
 					}
 				}else{
 					if(iscoolprogram)
@@ -479,12 +473,14 @@ void evalve(){
 	//openPressA 打开风扇5分钟
 	if(openPressA==HIGH && closePressA==LOW){
 		if(isreleaseA){
+			Serial.println("FAN ON 5");
 			forcefan += 5*60*10L; //增加5分钟
 		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
 		if(isreleaseA){
+			Serial.println("FAN OFF 5");
 			forcefan -= 5*60*10L; //减少5分钟
 			if(forcefan<0)forcefan = 0;
 		}
@@ -502,12 +498,15 @@ void evalve(){
 	int closePressB = digitalRead(Close_B_Pin);
 	//openPressA 打开加湿器2分钟
 	if(openPressB==HIGH && closePressB==LOW){
-		if(isreleaseB)
+		if(isreleaseB){
+			Serial.println("JS ON 2");
 			forcejs += 2*60*10L; //增加2分钟
+		}
 		isreleaseB = false;
 		EnableLCDLigh();
 	}else if(openPressB==LOW && closePressB==HIGH){
 		if(isreleaseB){
+			Serial.println("JS OFF 2");
 			forcejs -= 2*60*10L; //减少2分钟
 			if(forcejs<0){
 				forcejs = 0;
