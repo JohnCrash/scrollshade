@@ -30,6 +30,7 @@
 #define EN_PIN		36
 #define STEP_PIN	34
 #define DIR_PIN		32
+#define LIGHT_Pin 11 //开灯
 
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
@@ -73,6 +74,7 @@ long forcefan = 0;
 long forcejs = 0;
 bool isfanopen = false;
 bool isjsopen = false;
+bool islightopen = false;
 bool isreleaseA = true;
 bool isreleaseB = true;
 DateTime now;
@@ -105,7 +107,7 @@ void initSteper(){
 		digitalWrite(DIR_PIN,LOW);
 		for(int i = 0;i < 200;i++){
 			if(digitalRead(STOP_PIN)==LOW){
-				turnSteper(true,10);
+				turnSteper(true,8);
 				isGreenHouse = true;
 				return;
 			}
@@ -274,6 +276,7 @@ void setup(){
   pinMode(MOTOR_B_PIN0,OUTPUT);
   pinMode(MOTOR_B_PIN1,OUTPUT);
   pinMode(JSOPEN_PIN,OUTPUT);
+  pinMode(LIGHT_Pin,OUTPUT);
   pinMode(STOP_PIN,INPUT_PULLUP);
   pinMode(EN_PIN,OUTPUT);
   pinMode(STEP_PIN,OUTPUT);
@@ -298,6 +301,21 @@ void setup(){
   temperature_storage_cycle();
   initSteper();
   log('START');
+}
+
+//打开灯
+void openLight(bool b){
+	if(b){
+		if(!islightopen){
+			digitalWrite(LIGHT_Pin,HIGH);
+			islightopen = true;
+		}
+	}else{
+		if(islightopen){
+			digitalWrite(LIGHT_Pin,LOW);
+			islightopen = false;
+		}
+	}
 }
 
 //打开或者关闭加湿
@@ -369,6 +387,12 @@ void evalve(){
 	int hour = now.hour();
 	int minuts = now.minute();
 	int sec = now.second();
+
+	if(hour>=6 && hour<=21){
+		openLight(true);
+	}else{
+		openLight(false);
+	}
 	if(!isSensorFail){
 		if(forcejs>0){
 			openjs(true);
@@ -389,7 +413,7 @@ void evalve(){
 		if(forcejs>0){
 			openjs(true);
 		}else{
-			if(hour>=6 && hour<=18){
+			if(hour>=6 && hour<=20){
 				//根据温度进行控制，温度在20度下1小时加湿30s
 				//温度在20-25度1小时加湿60s大于25度半小时加湿1分钟
 				switchJS(true);
@@ -408,7 +432,7 @@ void evalve(){
 				}
 			}else if(isRoomEnabled){
 				switchJS(false);
-				if((minuts==1)&& !sec){
+				if((minuts%15==0)&& !sec){
 					openjs2(5*60);
 				}
 			}else{//夜晚不进行调节
