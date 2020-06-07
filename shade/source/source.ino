@@ -31,7 +31,7 @@
 #define STEP_PIN	34
 #define DIR_PIN		32
 #define LIGHT_Pin 11 //开灯
-
+#define RAINING_PIN EndStop_A1_Pin
 //温度湿度传感器DHT22资料
 //https://playground.ardu0ino.cc/Main/DHTLib
 //使用的库
@@ -53,6 +53,9 @@ bool B_switching_state = false;
 bool bIndoor = true; //显示室内
 bool isSensorFail = true; //湿度失效
 bool isRoomEnabled = false; 
+bool switch_done;
+int shadeState = -1;
+
 //温度传感器0
 dht dht0;
 int secs = 0;
@@ -261,6 +264,7 @@ void SDInit(){
 
 void setup(){
   //设置输入出入模式
+  pinMode(RAINING_PIN,INPUT_PULLUP);
   pinMode(EndStop_A0_Pin,INPUT_PULLUP);
   pinMode(EndStop_A1_Pin,INPUT_PULLUP);
   pinMode(EndStop_B0_Pin,INPUT_PULLUP);
@@ -298,8 +302,14 @@ void setup(){
   //从外部芯片取出当前时间
   now = rtc.now();
   openjsts = now.unixtime();
-  temperature_storage_cycle();
-  initSteper();
+  //temperature_storage_cycle();
+  //initSteper();
+  if(isShadeEndStopPassed()){
+	  shadeState = 0;
+  }else{
+	  shadeState = 2;
+  }
+
   log('START');
 }
 
@@ -379,171 +389,142 @@ void openfan(bool b){
 	}  
 }
 
-//早上6点到晚上6点，湿度低于65打开加湿器，85停止加湿
-//早上6点到晚上6点，温度高于28打开风扇，低于关闭风扇
+//shadeState = 0 , ShadeEndStopPassed True, 遮阳状态
+//shadeState = 1 , ShadeEndStopPassed False, 敞开过程中
+//shadeState = 2 , ShadeEndStopPassed False, 敞开状态
+//shadeState = 3 , ShadeEndStopPassed False, 关闭状态中
+//shadeState = -1 未初始化状态
+//判断遮阳棚是否已经打开
+bool isShadeEndStopPassed(){
+	return digitalRead(EndStop_A0_Pin)==LOW;
+}
+#define OPEN_DELAY 1000*18
+#define CLOSE_MAX_DELAY 1000*25
+unsigned long op_stop = 0;
+//操作时间到返回true
+bool opTimeOver(){
+	unsigned long c = millis();
+	bool b = c>=op_stop;
+	return b;
+}
+void shadeLoop(){
+	//int val;
+	//val = analogRead(A2);
+	//Serial.println(String(val));
+	if(shadeState==3){//关闭状态中
+		if(isShadeEndStopPassed() || opTimeOver()){ //保护性措施，如果endstop失灵不至于一只卷动
+			Serial.println("SHADE CLOSE DONE");
+		    digitalWrite(MOTOR_A_PIN0,LOW);
+     	    digitalWrite(MOTOR_A_PIN1,LOW);
+			shadeState = 0;
+		}
+	}else if(shadeState==1){//敞开过程中
+		if(opTimeOver()){
+			Serial.println("SHADE OPEN DONE");
+		    digitalWrite(MOTOR_A_PIN0,LOW);
+     	    digitalWrite(MOTOR_A_PIN1,LOW);
+			shadeState = 2;
+		}
+	}
+}
+void openShade(bool b){
+	if(b){
+		//b=true 关闭遮阳棚
+		if(shadeState==0){
+			return;
+		}else if(shadeState==1){
+			return; //操作被忽略，敞开操作必须完整做完，才能进一步操作
+		}else if(shadeState==2){
+			shadeState=3;
+			Serial.println("SHADE CLOSE");
+			op_stop = millis()+CLOSE_MAX_DELAY;
+		    digitalWrite(MOTOR_A_PIN0,HIGH);
+     	    digitalWrite(MOTOR_A_PIN1,LOW);
+		}else if(shadeState==3){
+			return;
+		}
+	}else{
+		//b=false 打开遮阳棚
+		if(shadeState==0){
+			shadeState=1;
+			Serial.println("SHADE OPEN");
+			op_stop = millis()+OPEN_DELAY;
+		    digitalWrite(MOTOR_A_PIN0,LOW);
+     	    digitalWrite(MOTOR_A_PIN1,HIGH);
+		}else if(shadeState==1){
+			return;
+		}else if(shadeState==2){
+			return;
+		}else if(shadeState==3){
+			return;
+		}		
+	}  
+}
+
+bool israiningImp(){
+	return digitalRead(RAINING_PIN)==LOW;
+}
+unsigned long raing_ms = 0;
+//正在下雨
+//每半个小时给出一次预报
+bool israining(){
+	unsigned long t = millis();
+	if(raing_ms<t && israiningImp()){
+		raing_ms = t+1000l*60l*30l;
+		return true;
+	}else if(raing_ms>t){
+		return true;
+	}else{
+		raing_ms = 0;
+		return false;
+	}
+}
+//早上10点关，下午4点开
+//如果下雨关
 void evalve(){
-	float ot = dht0.temperature;
-	float oh = dht0.humidity;
+	//float ot = dht0.temperature;
+	//float oh = dht0.humidity;
 	int hour = now.hour();
 	int minuts = now.minute();
 	int sec = now.second();
 
-	if(hour>=6 && hour<=21){
-		openLight(true);
+	if(israining()){
+		if(shadeState==2){
+			openShade(true); //关闭遮阳棚
+		}
 	}else{
-		openLight(false);
-	}
-	if(!isSensorFail){
-		if(forcejs>0){
-			openjs(true);
-		}else{
-			if(hour>=6 && hour<=18){ 
-				switchJS(true);
-				if(oh>85){
-					openjs(false);
-				}else if(oh<65 && oh>5){
-					openjs(true);
-				}
-			}else{//夜晚不进行调节
-				openjs(false);
+		//确保每天固定时间打开一次，关闭一次
+		if(hour==10 && minuts==0){
+			if(shadeState==2){
+				openShade(true); //关闭遮阳棚
+			}
+		}else if(hour==16 && minuts==0){
+			if(shadeState==0){
+				openShade(false); //打开遮阳棚
 			}
 		}
-	}else if(isSensorFail){
-		//湿度失效控制
-		if(forcejs>0){
-			openjs(true);
-		}else{
-			if(hour>=6 && hour<=20){
-				//根据温度进行控制，温度在20度下1小时加湿30s
-				//温度在20-25度1小时加湿60s大于25度半小时加湿1分钟
-				switchJS(true);
-				if(ot<20){
-					if(minuts%60==0 && !sec)
-						openjs2(120); //占空比 120/60 = 2
-				}else if(ot>=20&&ot<25){
-					if((minuts%30==0)&& !sec)
-						openjs2(120); //4
-				}else if(ot>=25 && ot<30){
-					if((minuts%15==0)&& !sec)
-						openjs2(120); //8
-				}else if(ot>=30){
-					if((minuts%5==0)&& !sec)
-						openjs2(60); //12
-				}
-			}else if(isRoomEnabled){
-				switchJS(false);
-				if((minuts%15==0)&& !sec){
-					openjs2(5*60);
-				}
-			}else{//夜晚不进行调节
-				switchJS(true);
-				openjs(false);
-			}
-		}		
 	}
-	if(!isfanopen){ //当风扇打开后将抑制加速器倒计时，为了让加湿延迟的排风结束在开始。
-		if(forcejs>0){
-			forcejs--;
-			if(forcejs==0){
-				openjs(false);
-			}
-		}else if(forcejs<0){
-			forcejs = 0;
-		}
-	}
-	//这里判断湿度传感器失效，如果加湿超过20秒湿度值还小于70,或者停止加湿1小时湿度仍然保持在80以上
-	//湿度失效后只能通过手动重启来重置湿度传感器
-	if(!isSensorFail){
-		uint32_t dt = now.unixtime() - openjsts;
-		if( (isjsopen && dt>=20&& oh<70) || (!isjsopen && dt>=3600 && oh>80)){
-			isSensorFail = true;
-			log("humidity sensor failed!");
-			Serial.println("humidity sensor failed!");
-			openjs(false);
-		}
-	}
-	//风扇控制
-	//1降温，2通风
-	if(forcefan>0){
-		openfan(true);
-	}else{
-		if(hour>=6 && hour<=18){
-			//早中晚各通风5分钟
-			if((hour==6||hour==12||hour==18)&& minuts==0 && forcefan<=0){
-				forcefan = 5*60*10L; //增加5分钟
-			}else{
-				if(ot>=32){
-					//降温程序
-					//因为ot>30的时候温度是5分钟1分钟
-					if(minuts%5==3 && !sec){
-						forcefan = 60*10L; //风扇1分钟
-					}
-				}else{
-					if(iscoolprogram)
-						logop(String("COOLING STOP"));
-					iscoolprogram = false;
-					openfan(false);
-				}
-			}
-		}else{//夜晚不进行调节
-			iscoolprogram = false;
-			openfan(false);
-		}
-	}
-  if(forcefan>0)forcefan--;
-	//手动控制风扇
+	shadeLoop();
+	//手动控制遮阳棚
 	int openPressA = digitalRead(Open_A_Pin);
 	int closePressA = digitalRead(Close_A_Pin);
 	//openPressA 打开风扇5分钟
 	if(openPressA==HIGH && closePressA==LOW){
 		if(isreleaseA){
-			Serial.println("FAN ON 5");
-			forcefan += 5*60*10L; //增加5分钟
+			openShade(true); //关闭遮阳棚
 		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==LOW && closePressA==HIGH){
 		if(isreleaseA){
-			Serial.println("FAN OFF 5");
-			forcefan -= 5*60*10L; //减少5分钟
-			if(forcefan<0)forcefan = 0;
+			openShade(false); //打开遮阳棚
 		}
 		isreleaseA = false;
 		EnableLCDLigh();
 	}else if(openPressA==HIGH && closePressA==HIGH){ //重置
 		isreleaseA = true;
 	}else{
-		forcefan = 0;
 		isreleaseA = false;
-		EnableLCDLigh();
-	}
-	//手动控制湿度
-	int openPressB = digitalRead(Open_B_Pin);
-	int closePressB = digitalRead(Close_B_Pin);
-	//openPressA 打开加湿器2分钟
-	if(openPressB==HIGH && closePressB==LOW){
-		if(isreleaseB){
-			Serial.println("JS ON 2");
-			forcejs += 2*60*10L; //增加2分钟
-		}
-		isreleaseB = false;
-		EnableLCDLigh();
-	}else if(openPressB==LOW && closePressB==HIGH){
-		if(isreleaseB){
-			Serial.println("JS OFF 2");
-			forcejs -= 2*60*10L; //减少2分钟
-			if(forcejs<0){
-				forcejs = 0;
-				openjs(false);
-			}
-		}
-		isreleaseB = false;
-		EnableLCDLigh();
-	}else if(openPressB==HIGH && closePressB==HIGH){ //重置
-		isreleaseB = true;
-	}else{
-		forcejs = 0;
-		isreleaseB = false;
 		EnableLCDLigh();
 	}
 }
@@ -727,20 +708,20 @@ void loop(){
   if(mode==0){
 	  timeDisplay();
 	  evalve();
-	  switchIndoorOutdoor();
+	  //switchIndoorOutdoor();
   }
 
   //设置时间以及时间显示
   setDateTime_cycle();
   LCDLighCyle();
   
-  if(secs==60*10){
+  //if(secs==60*10){
 	//温度数据存储
-	temperature_storage_cycle();
-	secs = 0;
-  }else{
-	  secs++;
-  }
+	//temperature_storage_cycle();
+	//secs = 0;
+  //}else{
+  //	  secs++;
+  //}
   //每秒循环10次
   accdt +=(100-(millis()-t));
 
